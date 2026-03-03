@@ -1,0 +1,697 @@
+'use client'
+import { useEffect, useState } from 'react'
+import {
+  generatorApi, curriculumApi, questionsApi, generatorExportApi, getErrorMessage,
+} from '@/lib/api'
+import type {
+  GeneratedQuestion, GenerateResponse, CurriculumTree,
+  CurriculumChapter, CurriculumLesson,
+  GeneratorExportRequest,
+} from '@/types'
+import { DIFFICULTY_LABELS, cn } from '@/lib/utils'
+import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info } from 'lucide-react'
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const EXAM_PRESETS = {
+  kt15:    { countTN: 5,  countTL: 1,  label: 'KT 15 phút' },
+  kt1tiet: { countTN: 28, countTL: 2,  label: 'KT 1 tiết' },
+  giuaky:  { countTN: 28, countTL: 2,  label: 'Giữa kỳ' },
+  cuoiky:  { countTN: 28, countTL: 3,  label: 'Cuối kỳ' },
+  thpt:    { countTN: 50, countTL: 0,  label: 'THPT Quốc gia' },
+  custom:  { countTN: 0,  countTL: 0,  label: 'Tùy chọn' },
+} as const
+type ExamPresetKey = keyof typeof EXAM_PRESETS
+
+const DIFF_PRESETS = {
+  balanced: { NB: 40, TH: 30, VD: 20, VDC: 10, label: 'Cân bằng' },
+  easy:     { NB: 50, TH: 35, VD: 15, VDC: 0,  label: 'Dễ' },
+  hard:     { NB: 25, TH: 30, VD: 30, VDC: 15, label: 'Khó' },
+  hsg:      { NB: 10, TH: 20, VD: 40, VDC: 30, label: 'HSG' },
+} as const
+type DiffPresetKey = keyof typeof DIFF_PRESETS
+
+const DIFF_COLORS: Record<string, string> = {
+  NB: '#22c55e', TH: '#6366f1', VD: '#f59e0b', VDC: '#ef4444',
+}
+
+const SCOPES = [
+  { value: 'chapter', label: 'Theo chương' },
+  { value: 'hk1',     label: 'Học kỳ I' },
+  { value: 'hk2',     label: 'Học kỳ II' },
+  { value: 'full',    label: 'Cả năm' },
+]
+
+const TARGETS = [
+  { value: 'dattra', label: 'Đại trà' },
+  { value: 'kha',    label: 'Khá – Giỏi' },
+  { value: 'hsg',    label: 'HSG / Chuyên' },
+]
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-[10px] font-semibold text-text-dim uppercase tracking-wider mb-2">{children}</div>
+}
+
+function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const color = DIFF_COLORS[q.difficulty] || '#6366f1'
+  return (
+    <div className="p-4 border-b border-bg-border last:border-0" style={{ borderLeft: `3px solid ${color}` }}>
+      <div className="flex items-start gap-3">
+        <span className="text-xs font-mono text-text-dim mt-0.5 w-10 flex-shrink-0">Câu {num}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+            <span className="badge text-[10px]" style={{ background: `${color}20`, color }}>
+              {DIFFICULTY_LABELS[q.difficulty] || q.difficulty}
+            </span>
+            <span className="badge bg-accent/10 text-accent text-[10px]">
+              {q.type === 'TN' ? 'Trắc nghiệm' : q.type === 'TL' ? 'Tự luận' : q.type}
+            </span>
+            {q.topic && <span className="text-[10px] text-text-dim">{q.topic}</span>}
+            <span className="badge bg-yellow-400/10 text-yellow-400 text-[10px]">AI</span>
+          </div>
+          <p className="text-sm text-text leading-relaxed">{q.question}</p>
+          {(q.answer || q.solution_steps.length > 0) && (
+            <button onClick={() => setExpanded(e => !e)}
+              className="mt-2 flex items-center gap-1 text-xs text-text-dim hover:text-accent transition-colors">
+              <ChevronDown size={12} className={cn('transition-transform', expanded && 'rotate-180')} />
+              {expanded ? 'Ẩn đáp án' : 'Xem đáp án & lời giải'}
+            </button>
+          )}
+          {expanded && (
+            <div className="mt-2 space-y-2 animate-slide-up">
+              {q.answer && (
+                <div className="text-xs bg-green-400/10 text-green-400 px-3 py-2 rounded-lg">
+                  <span className="font-medium">Đáp án: </span>{q.answer}
+                </div>
+              )}
+              {q.solution_steps.length > 0 && (
+                <div className="text-xs bg-bg-hover px-3 py-2 rounded-lg">
+                  <div className="font-medium text-text-muted mb-1">Lời giải:</div>
+                  {q.solution_steps.map((s, i) => (
+                    <div key={i} className="text-text-muted"><span className="text-text-dim">{i+1}.</span> {s}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+export default function GeneratePage() {
+  const [mode, setMode] = useState<'single' | 'exam'>('exam')
+
+  // Exam preset
+  const [examPreset, setExamPreset] = useState<ExamPresetKey>('giuaky')
+  const [customTN, setCustomTN] = useState(28)
+  const [customTL, setCustomTL] = useState(2)
+
+  // Difficulty
+  const [diffPreset, setDiffPreset] = useState<DiffPresetKey>('balanced')
+  const [diffDist, setDiffDist] = useState({ NB: 40, TH: 30, VD: 20, VDC: 10 })
+
+  // Single
+  const [singleCount, setSingleCount] = useState(5)
+  const [singleType, setSingleType] = useState('')
+  const [singleDiff, setSingleDiff] = useState('')
+
+  // Shared
+  const [topic, setTopic] = useState('')
+  const [scope, setScope] = useState('chapter')
+  const [target, setTarget] = useState('dattra')
+
+  // Curriculum
+  const [curriculumTree, setCurriculumTree] = useState<CurriculumTree | null>(null)
+  const [grade, setGrade] = useState<number | null>(null)
+  const [chapters, setChapters] = useState<CurriculumChapter[]>([])
+  const [chapterNo, setChapterNo] = useState('')
+  const [lessons, setLessons] = useState<CurriculumLesson[]>([])
+  const [lessonId, setLessonId] = useState('')
+  const [bankCount, setBankCount] = useState<number | null>(null)
+  const [topicOptions, setTopicOptions] = useState<string[]>([])
+
+  // Result
+  const [generating, setGenerating] = useState(false)
+  const [result, setResult] = useState<GenerateResponse | null>(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
+
+  // Export / preview
+  const [previewAnswers, setPreviewAnswers] = useState(true)
+  const [previewSolutions, setPreviewSolutions] = useState(true)
+  const [previewHtml, setPreviewHtml] = useState('')
+  const [exportLoading, setExportLoading] = useState<string | null>(null)
+
+  useEffect(() => {
+    curriculumApi.getTree().then(setCurriculumTree).catch(() => {})
+    questionsApi.getFilters().then(f => setTopicOptions(f.topics || [])).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const p = DIFF_PRESETS[diffPreset]
+    setDiffDist({ NB: p.NB, TH: p.TH, VD: p.VD, VDC: p.VDC })
+  }, [diffPreset])
+
+  const handleGradeSelect = (g: number) => {
+    setGrade(g); setChapterNo(''); setLessons([]); setLessonId(''); setTopic('')
+    const node = curriculumTree?.grades.find(n => n.grade === g)
+    setChapters(node?.chapters || [])
+    setBankCount(node?.question_count ?? null)
+  }
+
+  const handleChapterChange = (chNo: string) => {
+    setChapterNo(chNo); setLessonId(''); setLessons([])
+    if (!chNo) {
+      setBankCount(curriculumTree?.grades.find(n => n.grade === grade)?.question_count ?? null)
+      return
+    }
+    const ch = chapters.find(c => String(c.chapter_no) === chNo)
+    if (!ch) return
+    setLessons(ch.lessons)
+    setBankCount(ch.question_count)
+    if (!topic) setTopic(ch.chapter.replace(/^Chương\s+[IVXLC\d]+\.\s*/i, ''))
+  }
+
+  const handleLessonChange = (lId: string) => {
+    setLessonId(lId)
+    const ls = lessons.find(l => String(l.id) === lId)
+    if (ls) { setBankCount(ls.question_count); setTopic(ls.lesson_title) }
+  }
+
+  const diffTotal = diffDist.NB + diffDist.TH + diffDist.VD + diffDist.VDC
+
+  const buildContextTopic = () => {
+    const parts: string[] = []
+    if (grade) parts.push(`Lớp ${grade}`)
+    const preset = EXAM_PRESETS[examPreset]
+    if (mode === 'exam') {
+      const cTN = examPreset === 'custom' ? customTN : preset.countTN
+      const cTL = examPreset === 'custom' ? customTL : preset.countTL
+      parts.push(`${preset.label}: ${cTN} câu TN, ${cTL} câu TL`)
+      parts.push(`Độ khó ${DIFF_PRESETS[diffPreset].label}`)
+    }
+    parts.push(`Đối tượng: ${TARGETS.find(t => t.value === target)?.label}`)
+    if (topic) parts.push(`Nội dung: ${topic}`)
+    return parts.join(' · ')
+  }
+
+  const buildSections = () => {
+    const preset = EXAM_PRESETS[examPreset]
+    const total = (examPreset === 'custom' ? customTN : preset.countTN)
+                + (examPreset === 'custom' ? customTL : preset.countTL)
+    if (total === 0) return []
+    const diffs = ['NB', 'TH', 'VD', 'VDC'] as const
+    const sections: { difficulty: string; count: number }[] = []
+    let allocated = 0
+    diffs.forEach(d => {
+      const pct = diffDist[d]
+      if (pct === 0) return
+      const count = Math.round(total * pct / 100)
+      if (count > 0) { sections.push({ difficulty: d, count }); allocated += count }
+    })
+    // Fix rounding drift: adjust last section so total is exact
+    const remainder = total - allocated
+    if (remainder !== 0 && sections.length > 0) {
+      sections[sections.length - 1].count += remainder
+    }
+    return sections.filter(s => s.count > 0)
+  }
+
+  const handleGenerate = async () => {
+    setGenerating(true); setError(''); setResult(null); setSavedMsg(''); setPreviewHtml('')
+    const ctx = buildContextTopic()
+    try {
+      let res: GenerateResponse
+      if (mode === 'exam') {
+        const sections = buildSections()
+        if (!sections.length) throw new Error('Chưa cấu hình số câu')
+        res = await generatorApi.generateExam({ topic: ctx, sections })
+      } else {
+        res = await generatorApi.generate({
+          question_type: singleType || undefined,
+          topic: ctx || undefined,
+          difficulty: singleDiff || undefined,
+          count: singleCount,
+        })
+      }
+      setResult(res)
+    } catch (e) {
+      setError(getErrorMessage(e))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const handleSaveToBank = async () => {
+    if (!result?.questions.length) return
+    setSaving(true)
+    try {
+      const questions = result.questions.map(q => ({
+        question_text: q.question, question_type: q.type as 'TN' | 'TL' | 'DS' | 'GH', topic: q.topic,
+        difficulty: q.difficulty as 'NB' | 'TH' | 'VD' | 'VDC', grade: grade || undefined,
+        chapter: q.chapter, lesson_title: q.lesson_title,
+        answer: q.answer, solution_steps: q.solution_steps,
+      }))
+      const { saved, skipped } = await questionsApi.bulkCreate(questions)
+      setSavedMsg(`✓ Đã lưu ${saved} câu${skipped ? `, bỏ qua ${skipped} trùng` : ''}`)
+    } catch (e) {
+      setError(getErrorMessage(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const buildExportPayload = (): GeneratorExportRequest | null => {
+    if (!result?.questions.length) return null
+    return {
+      questions: result.questions.map(q => ({
+        question: q.question, type: q.type, topic: q.topic,
+        difficulty: q.difficulty, answer: q.answer, solution_steps: q.solution_steps,
+      })),
+      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : 'ĐỀ THI TOÁN HỌC',
+      subtitle: topic || '',
+      include_answers: previewAnswers,
+      include_solutions: previewSolutions,
+      group_by_diff: mode === 'exam',
+    }
+  }
+
+  const handleExport = async (format: 'docx' | 'pdf' | 'latex') => {
+    const payload = buildExportPayload(); if (!payload) return
+    setExportLoading(format)
+    try {
+      if (format === 'pdf') {
+        const html = await generatorExportApi.pdf({ ...payload, include_answers: true, include_solutions: true })
+        const w = window.open('', '_blank')
+        if (w) { w.document.write(html); w.document.close() }
+      } else if (format === 'docx') {
+        await generatorExportApi.docx(payload)
+      } else {
+        await generatorExportApi.latex(payload)
+      }
+    } catch (e) {
+      setError(getErrorMessage(e))
+    } finally {
+      setExportLoading(null)
+    }
+  }
+
+  // Auto-refresh preview when result or options change
+  useEffect(() => {
+    if (!result?.questions.length) return
+    const payload: GeneratorExportRequest = {
+      questions: result.questions.map(q => ({
+        question: q.question, type: q.type, topic: q.topic,
+        difficulty: q.difficulty, answer: q.answer, solution_steps: q.solution_steps,
+      })),
+      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : 'ĐỀ THI TOÁN HỌC',
+      subtitle: topic || '',
+      include_answers: previewAnswers,
+      include_solutions: previewSolutions,
+      group_by_diff: mode === 'exam',
+    }
+    generatorExportApi.pdf(payload)
+      .then(html => setPreviewHtml(
+        html.replace(/<div class="print-toolbar">[\s\S]*?<\/div>/, '')
+            .replace('</style>', '\n.exam-container{margin:0 auto;padding:24px 28px;}body{background:#fff;}\n</style>')
+      ))
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewAnswers, previewSolutions, result, mode, topic])
+
+  // Group by difficulty for exam mode display
+  const grouped = result
+    ? (['NB','TH','VD','VDC'] as const).reduce<Record<string, GeneratedQuestion[]>>((acc, d) => {
+        const qs = result.questions.filter(q => q.difficulty === d)
+        if (qs.length) acc[d] = qs
+        return acc
+      }, {})
+    : {}
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-5 animate-fade-in">
+      <div>
+        <h1 className="text-2xl font-bold text-text">Sinh đề AI</h1>
+        <p className="text-text-muted text-sm mt-1">
+          AI tham khảo ngân hàng câu hỏi của bạn để tạo câu tương tự
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-5">
+
+        {/* ── Config ── */}
+        <div className="space-y-4">
+
+          {/* Mode toggle */}
+          <div className="card p-4">
+            <SectionLabel>Chế độ</SectionLabel>
+            <div className="grid grid-cols-2 gap-2">
+              {[{ v: 'exam', l: 'Sinh đề' }, { v: 'single', l: 'Câu đơn' }].map(o => (
+                <button key={o.v} onClick={() => setMode(o.v as any)}
+                  className={cn('py-2 rounded-lg text-sm font-medium transition-colors',
+                    mode === o.v ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                  {o.l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Curriculum cascade */}
+          <div className="card p-4 space-y-3">
+            <SectionLabel>Chương trình học</SectionLabel>
+
+            {/* Grade */}
+            <div>
+              <div className="text-xs text-text-muted mb-2">Khối lớp</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[6,7,8,9,10,11,12].map(g => (
+                  <button key={g} onClick={() => handleGradeSelect(g)}
+                    className={cn('w-9 h-9 rounded-lg text-sm font-medium transition-colors',
+                      grade === g ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                    {g}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Scope */}
+            {grade && (
+              <div>
+                <div className="text-xs text-text-muted mb-2">Phạm vi</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {SCOPES.map(s => (
+                    <button key={s.value} onClick={() => { setScope(s.value); setChapterNo(''); setLessons([]); setLessonId('') }}
+                      className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                        scope === s.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Chapter */}
+            {grade && scope === 'chapter' && chapters.length > 0 && (
+              <div>
+                <div className="text-xs text-text-muted mb-1.5">Chương</div>
+                <select value={chapterNo} onChange={e => handleChapterChange(e.target.value)} className="input text-sm">
+                  <option value="">Tất cả chương</option>
+                  {chapters.map(ch => {
+                    const short = ch.chapter.replace(/^Chương\s+/, 'Ch.').replace(/\.\s+/, ' – ')
+                    return (
+                      <option key={ch.chapter_no} value={ch.chapter_no}>
+                        {short}{ch.question_count > 0 ? ` (${ch.question_count} câu)` : ''}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Lesson */}
+            {chapterNo && lessons.length > 0 && (
+              <div>
+                <div className="text-xs text-text-muted mb-1.5">Bài học</div>
+                <select value={lessonId} onChange={e => handleLessonChange(e.target.value)} className="input text-sm">
+                  <option value="">Tất cả bài trong chương</option>
+                  {lessons.map(ls => (
+                    <option key={ls.id} value={ls.id}>
+                      {ls.lesson_title}{ls.question_count > 0 ? ` (${ls.question_count} câu)` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Bank info */}
+            {grade !== null && bankCount !== null && (
+              <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs',
+                bankCount > 0 ? 'bg-green-400/10 text-green-400' : 'bg-bg-hover text-text-dim')}>
+                <Info size={12} />
+                {bankCount > 0
+                  ? `${bankCount} câu trong ngân hàng — AI sẽ tham khảo`
+                  : 'Chưa có câu trong ngân hàng — AI sinh từ đầu'}
+              </div>
+            )}
+          </div>
+
+          {/* Topic */}
+          <div className="card p-4 space-y-3">
+            <SectionLabel>Chủ đề</SectionLabel>
+            <input value={topic} onChange={e => setTopic(e.target.value)}
+              placeholder="VD: Hàm số bậc hai, Đạo hàm..."
+              className="input text-sm" />
+            {topicOptions.length > 0 && (
+              <select value="" onChange={e => { if (e.target.value) setTopic(e.target.value) }} className="input text-sm">
+                <option value="">Chọn từ ngân hàng...</option>
+                {topicOptions.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+          </div>
+
+          {/* Exam config */}
+          {mode === 'exam' && (
+            <div className="card p-4 space-y-3">
+              <SectionLabel>Cấu hình đề thi</SectionLabel>
+
+              {/* Exam type */}
+              <div>
+                <div className="text-xs text-text-muted mb-2">Loại đề</div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(Object.entries(EXAM_PRESETS) as [ExamPresetKey, any][]).map(([key, p]) => (
+                    <button key={key} onClick={() => setExamPreset(key)}
+                      className={cn('py-1.5 rounded-lg text-[11px] font-medium text-center transition-colors',
+                        examPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {examPreset === 'custom' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-xs text-text-muted mb-1">Câu TN</div>
+                    <input type="number" min={0} max={100} value={customTN}
+                      onChange={e => setCustomTN(Number(e.target.value))} className="input text-sm" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-text-muted mb-1">Câu TL</div>
+                    <input type="number" min={0} max={20} value={customTL}
+                      onChange={e => setCustomTL(Number(e.target.value))} className="input text-sm" />
+                  </div>
+                </div>
+              )}
+
+              {/* Diff preset */}
+              <div>
+                <div className="text-xs text-text-muted mb-2">Phân phối độ khó</div>
+                <div className="grid grid-cols-4 gap-1">
+                  {(Object.entries(DIFF_PRESETS) as [DiffPresetKey, any][]).map(([key, p]) => (
+                    <button key={key} onClick={() => setDiffPreset(key)}
+                      className={cn('py-1.5 rounded-lg text-[11px] font-medium transition-colors',
+                        diffPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 mt-2">
+                  {(['NB','TH','VD','VDC'] as const).map(d => (
+                    <div key={d}>
+                      <div className="text-[10px] font-medium mb-1" style={{ color: DIFF_COLORS[d] }}>
+                        {DIFFICULTY_LABELS[d]}
+                      </div>
+                      <input type="number" min={0} max={100} value={diffDist[d]}
+                        onChange={e => setDiffDist(p => ({ ...p, [d]: Number(e.target.value) }))}
+                        className="input text-sm py-1.5 text-center" />
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs mt-1 text-right">
+                  Tổng: <span className={diffTotal === 100 ? 'text-green-400' : 'text-red-400 font-bold'}>{diffTotal}%</span>
+                </div>
+              </div>
+
+              {/* Target */}
+              <div>
+                <div className="text-xs text-text-muted mb-2">Đối tượng học sinh</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {TARGETS.map(t => (
+                    <button key={t.value} onClick={() => setTarget(t.value)}
+                      className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                        target === t.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Single config */}
+          {mode === 'single' && (
+            <div className="card p-4 space-y-3">
+              <SectionLabel>Cấu hình câu đơn</SectionLabel>
+              <div>
+                <div className="text-xs text-text-muted mb-1.5">Số câu: <span className="text-accent font-bold">{singleCount}</span></div>
+                <input type="range" min={1} max={20} value={singleCount}
+                  onChange={e => setSingleCount(Number(e.target.value))} className="w-full accent-accent" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-xs text-text-muted mb-1.5">Loại câu</div>
+                  <select value={singleType} onChange={e => setSingleType(e.target.value)} className="input text-sm">
+                    <option value="">Bất kỳ</option>
+                    <option value="TN">Trắc nghiệm</option>
+                    <option value="TL">Tự luận</option>
+                  </select>
+                </div>
+                <div>
+                  <div className="text-xs text-text-muted mb-1.5">Độ khó</div>
+                  <select value={singleDiff} onChange={e => setSingleDiff(e.target.value)} className="input text-sm">
+                    <option value="">Bất kỳ</option>
+                    {['NB','TH','VD','VDC'].map(d => (
+                      <option key={d} value={d}>{DIFFICULTY_LABELS[d]}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button onClick={handleGenerate}
+            disabled={generating || (mode === 'exam' && diffTotal !== 100)}
+            className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+            {generating
+              ? <><Loader2 size={16} className="animate-spin" />Đang sinh đề...</>
+              : <><Wand2 size={16} />Sinh đề AI</>}
+          </button>
+          {mode === 'exam' && diffTotal !== 100 && (
+            <p className="text-xs text-red-400 text-center -mt-2">Tổng % phải = 100 (hiện {diffTotal}%)</p>
+          )}
+        </div>
+
+        {/* ── Result ── */}
+        <div className="space-y-4">
+          {!result && !generating && !error && (
+            <div className="card flex items-center justify-center py-32">
+              <div className="text-center">
+                <Wand2 size={40} className="text-text-dim mx-auto mb-3" />
+                <div className="text-text-muted">Cấu hình và nhấn "Sinh đề AI"</div>
+                <div className="text-text-dim text-sm mt-1">AI tham khảo ngân hàng câu hỏi của bạn</div>
+              </div>
+            </div>
+          )}
+
+          {generating && (
+            <div className="card p-12 flex items-center justify-center">
+              <div className="text-center space-y-3">
+                <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+                <div className="text-text-muted">AI đang sinh câu hỏi...</div>
+                {grade && <div className="text-text-dim text-sm">Lớp {grade} · {topic || 'Toán học'}</div>}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="card p-5 text-red-400 text-sm">⚠ {error}</div>
+          )}
+
+          {result && (
+            <>
+              {/* Toolbar */}
+              <div className="card p-4 flex items-center gap-3 flex-wrap">
+                <div>
+                  <div className="font-semibold text-text">
+                    {result.questions.length} câu hỏi
+                    {result.sample_count > 0 && (
+                      <span className="text-text-muted text-sm font-normal ml-2">
+                        (tham khảo {result.sample_count} câu mẫu)
+                      </span>
+                    )}
+                  </div>
+                  {savedMsg && <div className="text-xs text-green-400 mt-0.5">{savedMsg}</div>}
+                </div>
+                <div className="flex items-center gap-2 ml-auto flex-wrap">
+                  <button onClick={handleGenerate} className="btn-ghost text-sm flex items-center gap-1.5">
+                    <RefreshCw size={13} /> Tạo lại
+                  </button>
+                  <button onClick={handleSaveToBank} disabled={saving}
+                    className="btn-ghost text-sm flex items-center gap-1.5">
+                    {saving ? <Loader2 size={13} className="animate-spin" /> : <BookmarkPlus size={13} />}
+                    Lưu vào ngân hàng
+                  </button>
+                  <button onClick={() => handleExport('docx')} disabled={!!exportLoading}
+                    className="btn-primary text-sm flex items-center gap-1.5 py-1.5">
+                    {exportLoading === 'docx' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    DOCX
+                  </button>
+                  <button onClick={() => handleExport('pdf')} disabled={!!exportLoading}
+                    className="btn-ghost text-sm flex items-center gap-1.5 py-1.5">
+                    {exportLoading === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    PDF
+                  </button>
+                  <button onClick={() => handleExport('latex')} disabled={!!exportLoading}
+                    className="btn-ghost text-sm flex items-center gap-1.5 py-1.5">
+                    {exportLoading === 'latex' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    LaTeX
+                  </button>
+                </div>
+              </div>
+
+              {/* Question list */}
+              <div className="card overflow-hidden max-h-[600px] overflow-y-auto">
+                {mode === 'exam'
+                  ? Object.entries(grouped).map(([diff, qs]) => (
+                      <div key={diff}>
+                        <div className="px-4 py-2.5 flex items-center gap-2 sticky top-0 z-10"
+                          style={{ background: `${DIFF_COLORS[diff]}14`, borderLeft: `4px solid ${DIFF_COLORS[diff]}` }}>
+                          <span className="font-bold text-sm" style={{ color: DIFF_COLORS[diff] }}>
+                            {DIFFICULTY_LABELS[diff]}
+                          </span>
+                          <span className="text-text-dim text-xs">{qs.length} câu</span>
+                        </div>
+                        {qs.map((q, i) => {
+                          const globalNum = result.questions.findIndex(r => r === q) + 1
+                          return <QuestionCard key={i} q={q} num={globalNum} />
+                        })}
+                      </div>
+                    ))
+                  : result.questions.map((q, i) => <QuestionCard key={i} q={q} num={i + 1} />)
+                }
+              </div>
+
+              {/* PDF Preview */}
+              {previewHtml && (
+                <div className="card overflow-hidden">
+                  <div className="px-4 py-3 border-b border-bg-border flex items-center gap-4">
+                    <span className="text-sm font-medium text-text">Xem trước PDF</span>
+                    <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+                      <input type="checkbox" checked={previewAnswers}
+                        onChange={e => setPreviewAnswers(e.target.checked)} className="accent-accent" />
+                      Đáp án
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+                      <input type="checkbox" checked={previewSolutions}
+                        onChange={e => setPreviewSolutions(e.target.checked)} className="accent-accent" />
+                      Lời giải
+                    </label>
+                  </div>
+                  <iframe srcDoc={previewHtml} className="w-full border-0" style={{ height: 500 }} title="PDF Preview" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
