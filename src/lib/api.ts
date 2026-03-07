@@ -124,6 +124,11 @@ export const parserApi = {
       try { onEvent({ ...JSON.parse(e.data), stage: 'error' }) } catch {}
       es.close()
     })
+    // stream_timeout means SSE timed out but parsing may still be running.
+    // Just close the SSE connection — polling fallback will detect completion.
+    es.addEventListener('stream_timeout', () => {
+      es.close()
+    })
     es.onerror = () => es.close()
     return () => es.close()
   },
