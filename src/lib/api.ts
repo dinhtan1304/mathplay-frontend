@@ -3,7 +3,7 @@ import type {
   AuthToken, LoginRequest, RegisterRequest, User,
   DashboardStats, ChartData, Activity,
   Question, QuestionListResponse, QuestionFilters, QuestionUpdate,
-  GenerateRequest, ExamGenerateRequest, GenerateResponse,
+  GenerateRequest, ExamGenerateRequest, PromptGenerateRequest, GenerateResponse,
   GeneratorExportRequest,
   ClassRoom, ClassCreate, ClassMember,
   Assignment, AssignmentCreate,
@@ -13,6 +13,7 @@ import type {
   ParseProgress,
   Exam,
   CurriculumTree,
+  ChatMessageRequest, ChatMessageResponse, ChatSession as ChatSessionType, ChatSessionHistory,
 } from '@/types'
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -175,6 +176,10 @@ export const generatorApi = {
   // Exam mode: POST /api/v1/generate/exam
   generateExam: (data: ExamGenerateRequest) =>
     api.post<GenerateResponse>('/generate/exam', data).then(r => r.data),
+
+  // RAG prompt mode: POST /api/v1/generate/from-prompt
+  generateFromPrompt: (data: PromptGenerateRequest) =>
+    api.post<GenerateResponse>('/generate/from-prompt', data).then(r => r.data),
 }
 
 // ─── Curriculum ───────────────────────────────────────────────────────────────
@@ -340,6 +345,21 @@ export const analyticsApi = {
 
   getStudent: (studentId: number, classId: number) =>
     api.get<StudentDetail>(`/analytics/student/${studentId}/in-class/${classId}`).then(r => r.data),
+}
+
+// ─── Chat ────────────────────────────────────────────────────────────────────
+export const chatApi = {
+  sendMessage: (data: ChatMessageRequest) =>
+    api.post<ChatMessageResponse>('/chat/message', data).then(r => r.data),
+
+  listSessions: () =>
+    api.get<ChatSessionType[]>('/chat/sessions').then(r => r.data),
+
+  getSession: (sessionId: number) =>
+    api.get<ChatSessionHistory>(`/chat/sessions/${sessionId}`).then(r => r.data),
+
+  deleteSession: (sessionId: number) =>
+    api.delete(`/chat/sessions/${sessionId}`),
 }
 
 export default api

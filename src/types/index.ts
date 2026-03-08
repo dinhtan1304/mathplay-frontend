@@ -129,6 +129,12 @@ export interface ExamGenerateRequest {
   sections: ExamSection[]
 }
 
+export interface PromptGenerateRequest {
+  prompt: string
+  grade?: number | null
+  count?: number | null
+}
+
 export interface GeneratedQuestion {
   question: string
   type: string
@@ -139,12 +145,77 @@ export interface GeneratedQuestion {
   lesson_title: string
   answer: string
   solution_steps: string[]
+  // v3: verification metadata
+  _verified?: 'fixed' | 'ambiguous'
+  _verify_note?: string
+  _potential_duplicates?: number
+  _max_similarity?: number
+}
+
+export interface VerificationStats {
+  total: number
+  correct: number
+  wrong: number
+  ambiguous: number
+  fixed: number
+  removed: number
 }
 
 export interface GenerateResponse {
   questions: GeneratedQuestion[]
   sample_count: number
   message: string
+  // v3: verification + criteria
+  verification?: VerificationStats | null
+  criteria?: {
+    grade?: number | null
+    chapters?: string[]
+    difficulty_mix?: Record<string, number>
+    question_type?: string
+    total_count?: number
+    topic_hint?: string
+  } | null
+}
+
+// ─── Chat ───────────────────────────────────────────────────────────────────
+export interface ChatMessageRequest {
+  message: string
+  session_id?: number | null
+  grade?: number | null
+}
+
+export interface ChatContextQuestion {
+  id: number
+  question_text: string
+  topic: string
+  difficulty: string
+  grade?: number | null
+}
+
+export interface ChatMessageResponse {
+  answer: string
+  session_id: number
+  detected_grade?: number | null
+  context_questions: ChatContextQuestion[]
+}
+
+export interface ChatSession {
+  id: number
+  title: string
+  updated_at: string
+  message_count: number
+}
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface ChatSessionHistory {
+  session_id: number
+  title: string
+  messages: ChatHistoryMessage[]
 }
 
 // ─── Curriculum ───────────────────────────────────────────────────────────────

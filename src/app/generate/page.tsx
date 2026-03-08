@@ -6,10 +6,10 @@ import {
 import type {
   GeneratedQuestion, GenerateResponse, CurriculumTree,
   CurriculumChapter, CurriculumLesson,
-  GeneratorExportRequest,
+  GeneratorExportRequest, VerificationStats,
 } from '@/types'
 import { DIFFICULTY_LABELS, cn } from '@/lib/utils'
-import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info } from 'lucide-react'
+import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare } from 'lucide-react'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -71,6 +71,23 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
             </span>
             {q.topic && <span className="text-[10px] text-text-dim">{q.topic}</span>}
             <span className="badge bg-yellow-400/10 text-yellow-400 text-[10px]">AI</span>
+            {q._verified === 'fixed' && (
+              <span className="badge bg-orange-400/10 text-orange-400 text-[10px] flex items-center gap-0.5">
+                <ShieldCheck size={9} /> Đã sửa đáp án
+              </span>
+            )}
+            {q._verified === 'ambiguous' && (
+              <span className="badge bg-yellow-500/10 text-yellow-500 text-[10px] flex items-center gap-0.5"
+                title={q._verify_note || ''}>
+                <AlertTriangle size={9} /> Cần kiểm tra
+              </span>
+            )}
+            {(q._potential_duplicates ?? 0) > 0 && (
+              <span className="badge bg-purple-400/10 text-purple-400 text-[10px] flex items-center gap-0.5"
+                title={`Tương tự ${Math.round((q._max_similarity ?? 0) * 100)}% với ${q._potential_duplicates} câu trong ngân hàng`}>
+                <Copy size={9} /> Có thể trùng
+              </span>
+            )}
           </div>
           <p className="text-sm text-text leading-relaxed">{q.question}</p>
           {(q.answer || q.solution_steps.length > 0) && (
@@ -95,6 +112,11 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
                   ))}
                 </div>
               )}
+              {q._verify_note && (
+                <div className="text-xs bg-yellow-500/10 text-yellow-500 px-3 py-2 rounded-lg">
+                  <span className="font-medium">Ghi chú kiểm tra: </span>{q._verify_note}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -106,7 +128,7 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function GeneratePage() {
-  const [mode, setMode] = useState<'single' | 'exam'>('exam')
+  const [mode, setMode] = useState<'single' | 'exam' | 'prompt'>('exam')
 
   // Exam preset
   const [examPreset, setExamPreset] = useState<ExamPresetKey>('giuaky')
@@ -121,6 +143,10 @@ export default function GeneratePage() {
   const [singleCount, setSingleCount] = useState(5)
   const [singleType, setSingleType] = useState('')
   const [singleDiff, setSingleDiff] = useState('')
+
+  // Prompt (RAG free-text)
+  const [promptText, setPromptText] = useState('')
+  const [promptCount, setPromptCount] = useState(10)
 
   // Shared
   const [topic, setTopic] = useState('')
@@ -230,7 +256,13 @@ export default function GeneratePage() {
     const ctx = buildContextTopic()
     try {
       let res: GenerateResponse
-      if (mode === 'exam') {
+      if (mode === 'prompt') {
+        res = await generatorApi.generateFromPrompt({
+          prompt: promptText.trim(),
+          grade: grade || undefined,
+          count: promptCount || undefined,
+        })
+      } else if (mode === 'exam') {
         const sections = buildSections()
         if (!sections.length) throw new Error('Chưa cấu hình số câu')
         res = await generatorApi.generateExam({ topic: ctx, sections })
@@ -353,8 +385,12 @@ export default function GeneratePage() {
           {/* Mode toggle */}
           <div className="card p-4">
             <SectionLabel>Chế độ</SectionLabel>
-            <div className="grid grid-cols-2 gap-2">
-              {[{ v: 'exam', l: 'Sinh đề' }, { v: 'single', l: 'Câu đơn' }].map(o => (
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { v: 'exam', l: 'Sinh đề' },
+                { v: 'single', l: 'Câu đơn' },
+                { v: 'prompt', l: 'Prompt tự do' },
+              ].map(o => (
                 <button key={o.v} onClick={() => setMode(o.v as any)}
                   className={cn('py-2 rounded-lg text-sm font-medium transition-colors',
                     mode === o.v ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
@@ -567,15 +603,55 @@ export default function GeneratePage() {
             </div>
           )}
 
+          {/* Prompt mode config */}
+          {mode === 'prompt' && (
+            <div className="card p-4 space-y-3">
+              <SectionLabel>
+                <div className="flex items-center gap-1.5">
+                  <MessageSquare size={12} />
+                  Mô tả yêu cầu bằng tiếng Việt
+                </div>
+              </SectionLabel>
+              <textarea
+                value={promptText}
+                onChange={e => setPromptText(e.target.value)}
+                placeholder={"VD: Tạo 10 câu TN lớp 8 ôn hằng đẳng thức và phân thức, mix NB/TH/VD\n\nHoặc: 5 câu tự luận lớp 12 về đạo hàm mức VDC\n\nHoặc: Đề ôn thi HK2 lớp 9 tập trung hệ phương trình"}
+                rows={4}
+                className="input text-sm resize-none"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-xs text-text-muted mb-1.5">Số câu (tuỳ chọn)</div>
+                  <input type="number" min={1} max={50} value={promptCount}
+                    onChange={e => setPromptCount(Number(e.target.value))} className="input text-sm" />
+                </div>
+                <div>
+                  <div className="text-xs text-text-muted mb-1.5">Lớp (tuỳ chọn)</div>
+                  <select value={grade ?? ''} onChange={e => e.target.value ? handleGradeSelect(Number(e.target.value)) : setGrade(null as any)} className="input text-sm">
+                    <option value="">AI tự nhận diện</option>
+                    {[6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-accent/10 text-accent">
+                <Info size={12} />
+                AI sẽ phân tích yêu cầu, tìm câu mẫu trong ngân hàng, sinh đề mới và kiểm tra đáp án tự động
+              </div>
+            </div>
+          )}
+
           <button onClick={handleGenerate}
-            disabled={generating || (mode === 'exam' && diffTotal !== 100)}
+            disabled={generating || (mode === 'exam' && diffTotal !== 100) || (mode === 'prompt' && !promptText.trim())}
             className="btn-primary w-full flex items-center justify-center gap-2 py-3">
             {generating
               ? <><Loader2 size={16} className="animate-spin" />Đang sinh đề...</>
-              : <><Wand2 size={16} />Sinh đề AI</>}
+              : <><Wand2 size={16} />{mode === 'prompt' ? 'Sinh đề từ prompt' : 'Sinh đề AI'}</>}
           </button>
           {mode === 'exam' && diffTotal !== 100 && (
             <p className="text-xs text-red-400 text-center -mt-2">Tổng % phải = 100 (hiện {diffTotal}%)</p>
+          )}
+          {mode === 'prompt' && !promptText.trim() && (
+            <p className="text-xs text-text-dim text-center -mt-2">Nhập mô tả yêu cầu để bắt đầu</p>
           )}
         </div>
 
@@ -618,6 +694,43 @@ export default function GeneratePage() {
                       </span>
                     )}
                   </div>
+                  {/* Verification stats */}
+                  {result.verification && (
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs text-green-400 flex items-center gap-1">
+                        <ShieldCheck size={11} /> {result.verification.correct} đúng
+                      </span>
+                      {result.verification.fixed > 0 && (
+                        <span className="text-xs text-orange-400 flex items-center gap-1">
+                          <AlertTriangle size={11} /> {result.verification.fixed} đã sửa
+                        </span>
+                      )}
+                      {result.verification.removed > 0 && (
+                        <span className="text-xs text-red-400">
+                          {result.verification.removed} loại bỏ
+                        </span>
+                      )}
+                      {result.verification.ambiguous > 0 && (
+                        <span className="text-xs text-yellow-500">
+                          {result.verification.ambiguous} cần kiểm tra
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {/* Parsed criteria from prompt mode */}
+                  {result.criteria && mode === 'prompt' && (
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {result.criteria.grade && (
+                        <span className="badge bg-accent/10 text-accent text-[10px]">Lớp {result.criteria.grade}</span>
+                      )}
+                      {result.criteria.chapters?.map(ch => (
+                        <span key={ch} className="badge bg-bg-hover text-text-muted text-[10px]">{ch}</span>
+                      ))}
+                      {result.criteria.difficulty_mix && Object.entries(result.criteria.difficulty_mix).map(([d, n]) => (
+                        <span key={d} className="text-[10px]" style={{ color: DIFF_COLORS[d] }}>{n}×{d}</span>
+                      ))}
+                    </div>
+                  )}
                   {savedMsg && <div className="text-xs text-green-400 mt-0.5">{savedMsg}</div>}
                 </div>
                 <div className="flex items-center gap-2 ml-auto flex-wrap">

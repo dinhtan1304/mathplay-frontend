@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, Upload, BookOpen, Wand2, Users,
+  LayoutDashboard, Upload, BookOpen, Wand2, Users, MessageCircle,
   BarChart3, LogOut, Menu, X, ChevronRight, Sigma,
 } from 'lucide-react'
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/bank', icon: BookOpen, label: 'Ngân hàng đề', section: 'Quản lý' },
   { href: '/generate', icon: Wand2, label: 'Sinh đề AI', section: 'Quản lý' },
   { href: '/classes', icon: Users, label: 'Lớp học', section: 'Quản lý' },
+  { href: '/chat', icon: MessageCircle, label: 'Gia sư AI', section: 'Quản lý' },
 ]
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

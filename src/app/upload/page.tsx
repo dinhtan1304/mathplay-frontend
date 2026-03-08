@@ -186,7 +186,7 @@ export default function UploadPage() {
         >
           <input
             ref={fileInput} type="file" accept=".pdf,.docx,.doc" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
           />
           <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
             <Upload size={28} className="text-accent" />
@@ -279,6 +279,32 @@ export default function UploadPage() {
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <BookmarkPlus size={14} />}
                 Lưu lại ({selectedIds.size})
               </button>
+            </div>
+          </div>
+
+          {/* Upload another file */}
+          <div
+            className={cn(
+              'card border-2 border-dashed p-6 text-center cursor-pointer transition-colors duration-150',
+              dragOver ? 'border-accent bg-accent/5' : 'border-bg-border hover:border-accent/50'
+            )}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInput.current?.click()}
+          >
+            <input
+              ref={fileInput} type="file" accept=".pdf,.docx,.doc" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+            />
+            <div className="flex items-center justify-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                <Upload size={18} className="text-accent" />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-semibold text-text">Upload thêm đề thi</div>
+                <div className="text-xs text-text-muted">Kéo thả hoặc nhấn để chọn file PDF, DOCX</div>
+              </div>
             </div>
           </div>
 
