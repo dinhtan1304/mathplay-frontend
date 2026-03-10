@@ -1,9 +1,9 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { parserApi, questionsApi, getErrorMessage } from '@/lib/api'
-import type { Question } from '@/types'
+import { parserApi, questionsApi, classesApi, assignmentsApi, getErrorMessage } from '@/lib/api'
+import type { Question, ClassRoom } from '@/types'
 import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn } from '@/lib/utils'
-import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X } from 'lucide-react'
 import { MathText } from '@/lib/math'
 
 type Stage = 'idle' | 'uploading' | 'processing' | 'done' | 'error'
@@ -20,9 +20,17 @@ export default function UploadPage() {
   const [progress, setProgress] = useState<ProgressState>({ percent: 0, message: '' })
   const [questions, setQuestions] = useState<Question[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [jobId, setJobId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
   const [error, setError] = useState('')
+  // Send to class dialog
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendTitle, setSendTitle] = useState('')
+  const [sendClasses, setSendClasses] = useState<ClassRoom[]>([])
+  const [sendClassId, setSendClassId] = useState<number | null>(null)
+  const [sending, setSending] = useState(false)
+  const [sentMsg, setSentMsg] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -63,13 +71,14 @@ export default function UploadPage() {
     }
     // Reset state
     setError(''); setStage('uploading'); setUploadPct(0)
-    setQuestions([]); setSelectedIds(new Set()); setSavedMsg('')
+    setQuestions([]); setSelectedIds(new Set()); setSavedMsg(''); setJobId(null)
     setProgress({ percent: 0, message: 'Đang tải lên...' })
     unsubRef.current?.()
     if (pollRef.current) clearInterval(pollRef.current)
 
     try {
       const { job_id } = await parserApi.upload(file, setUploadPct)
+      setJobId(job_id)
       setStage('processing')
       setProgress({ percent: 5, message: 'Đang khởi tạo...' })
 
@@ -158,6 +167,30 @@ export default function UploadPage() {
       setError(getErrorMessage(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openSendDialog = async () => {
+    setSendTitle('Bài tập từ đề thi')
+    setSendClassId(null)
+    setSentMsg('')
+    setSendDialogOpen(true)
+    try {
+      setSendClasses(await classesApi.list())
+    } catch { setSendClasses([]) }
+  }
+
+  const handleSendToClass = async () => {
+    if (!jobId || !sendClassId) return
+    setSending(true)
+    try {
+      await assignmentsApi.create({ class_id: sendClassId, exam_id: jobId, title: sendTitle.trim() || 'Bài tập' })
+      setSentMsg('✓ Đã gửi vào lớp thành công!')
+      setTimeout(() => setSendDialogOpen(false), 1500)
+    } catch (e) {
+      setSentMsg(`⚠ ${getErrorMessage(e)}`)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -274,10 +307,16 @@ export default function UploadPage() {
               <button
                 onClick={saveSelected}
                 disabled={saving || selectedIds.size === 0}
-                className="btn-primary text-sm py-1.5 flex items-center gap-1.5"
+                className="btn-ghost text-sm py-1.5 flex items-center gap-1.5"
               >
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <BookmarkPlus size={14} />}
                 Lưu lại ({selectedIds.size})
+              </button>
+              <button
+                onClick={openSendDialog}
+                className="btn-primary text-sm py-1.5 flex items-center gap-1.5"
+              >
+                <Send size={14} /> Gửi vào lớp
               </button>
             </div>
           </div>
@@ -403,6 +442,74 @@ export default function UploadPage() {
           >
             Thử lại
           </button>
+        </div>
+      )}
+
+      {/* Send to class dialog */}
+      {sendDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-text">Gửi vào lớp</h2>
+              <button onClick={() => setSendDialogOpen(false)} className="text-text-dim hover:text-text">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-text-dim mb-1.5 block">Tên bài tập *</label>
+                <input
+                  value={sendTitle}
+                  onChange={e => setSendTitle(e.target.value)}
+                  placeholder="VD: Bài tập kiểm tra 45 phút"
+                  className="input text-sm w-full"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-text-dim mb-1.5 block">Chọn lớp *</label>
+                {sendClasses.length === 0 ? (
+                  <div className="text-sm text-text-muted text-center py-4">
+                    Bạn chưa có lớp nào. Tạo lớp trong mục Quản lý lớp trước.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {sendClasses.map(cls => (
+                      <button key={cls.id} onClick={() => setSendClassId(cls.id)}
+                        className={cn(
+                          'w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors',
+                          sendClassId === cls.id
+                            ? 'border-accent bg-accent/10 text-text'
+                            : 'border-bg-border bg-bg-hover text-text-muted hover:text-text'
+                        )}>
+                        <div className="font-medium">{cls.name}</div>
+                        {(cls.subject || cls.grade) && (
+                          <div className="text-xs text-text-dim mt-0.5">
+                            {cls.subject}{cls.grade ? ` · Lớp ${cls.grade}` : ''}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {sentMsg && (
+                <div className={cn('text-sm px-3 py-2 rounded-lg',
+                  sentMsg.startsWith('✓') ? 'bg-green-400/10 text-green-400' : 'bg-red-400/10 text-red-400')}>
+                  {sentMsg}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setSendDialogOpen(false)} className="btn-ghost flex-1 py-2 text-sm">Hủy</button>
+                <button
+                  onClick={handleSendToClass}
+                  disabled={sending || !sendClassId || !sendTitle.trim()}
+                  className="btn-primary flex-1 py-2 text-sm flex items-center justify-center gap-1.5">
+                  {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Gửi bài tập
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

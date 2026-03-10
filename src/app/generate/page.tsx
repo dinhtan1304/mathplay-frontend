@@ -1,15 +1,50 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import {
-  generatorApi, curriculumApi, questionsApi, generatorExportApi, getErrorMessage,
+  generatorApi, curriculumApi, questionsApi, generatorExportApi, classesApi, assignmentsApi, getErrorMessage,
 } from '@/lib/api'
 import type {
   GeneratedQuestion, GenerateResponse, CurriculumTree,
   CurriculumChapter, CurriculumLesson,
-  GeneratorExportRequest, VerificationStats,
+  GeneratorExportRequest, VerificationStats, QuestionType, Difficulty, ClassRoom,
 } from '@/types'
 import { DIFFICULTY_LABELS, cn } from '@/lib/utils'
-import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare } from 'lucide-react'
+import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare, Send, X } from 'lucide-react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
+
+
+// ─── KaTeX Math Renderer ─────────────────────────────────────────────────────
+
+function MathText({ text, className }: { text: string; className?: string }) {
+  const html = useMemo(() => {
+    if (!text) return ''
+    try {
+      // Split on $$...$$ (display) and $...$ (inline), preserving delimiters
+      const parts = text.split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/)
+      return parts.map(part => {
+        if (part.startsWith('$$') && part.endsWith('$$')) {
+          const math = part.slice(2, -2).trim()
+          try {
+            return katex.renderToString(math, { displayMode: true, throwOnError: false })
+          } catch { return part }
+        }
+        if (part.startsWith('$') && part.endsWith('$') && part.length > 2) {
+          const math = part.slice(1, -1).trim()
+          try {
+            return katex.renderToString(math, { displayMode: false, throwOnError: false })
+          } catch { return part }
+        }
+        // Escape HTML in non-math text
+        return part.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      }).join('')
+    } catch {
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    }
+  }, [text])
+
+  return <span className={className} dangerouslySetInnerHTML={{ __html: html }} />
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -89,7 +124,7 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
               </span>
             )}
           </div>
-          <p className="text-sm text-text leading-relaxed">{q.question}</p>
+          <p className="text-sm text-text leading-relaxed"><MathText text={q.question} /></p>
           {(q.answer || q.solution_steps.length > 0) && (
             <button onClick={() => setExpanded(e => !e)}
               className="mt-2 flex items-center gap-1 text-xs text-text-dim hover:text-accent transition-colors">
@@ -101,20 +136,20 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
             <div className="mt-2 space-y-2 animate-slide-up">
               {q.answer && (
                 <div className="text-xs bg-green-400/10 text-green-400 px-3 py-2 rounded-lg">
-                  <span className="font-medium">Đáp án: </span>{q.answer}
+                  <span className="font-medium">Đáp án: </span><MathText text={q.answer} />
                 </div>
               )}
               {q.solution_steps.length > 0 && (
                 <div className="text-xs bg-bg-hover px-3 py-2 rounded-lg">
                   <div className="font-medium text-text-muted mb-1">Lời giải:</div>
                   {q.solution_steps.map((s, i) => (
-                    <div key={i} className="text-text-muted"><span className="text-text-dim">{i+1}.</span> {s}</div>
+                    <div key={i} className="text-text-muted"><span className="text-text-dim">{i+1}.</span> <MathText text={s} /></div>
                   ))}
                 </div>
               )}
               {q._verify_note && (
                 <div className="text-xs bg-yellow-500/10 text-yellow-500 px-3 py-2 rounded-lg">
-                  <span className="font-medium">Ghi chú kiểm tra: </span>{q._verify_note}
+                  <span className="font-medium">Ghi chú kiểm tra: </span><MathText text={q._verify_note || ''} />
                 </div>
               )}
             </div>
@@ -169,6 +204,14 @@ export default function GeneratePage() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
+
+  // Send to class dialog
+  const [sendDialogOpen, setSendDialogOpen] = useState(false)
+  const [sendTitle, setSendTitle] = useState('')
+  const [sendClasses, setSendClasses] = useState<ClassRoom[]>([])
+  const [sendClassId, setSendClassId] = useState<number | null>(null)
+  const [sending, setSending] = useState(false)
+  const [sentMsg, setSentMsg] = useState('')
 
   // Export / preview
   const [previewAnswers, setPreviewAnswers] = useState(true)
@@ -287,17 +330,51 @@ export default function GeneratePage() {
     setSaving(true)
     try {
       const questions = result.questions.map(q => ({
-        question_text: q.question, question_type: q.type as 'TN' | 'TL' | 'DS' | 'GH', topic: q.topic,
-        difficulty: q.difficulty as 'NB' | 'TH' | 'VD' | 'VDC', grade: grade || undefined,
-        chapter: q.chapter, lesson_title: q.lesson_title,
-        answer: q.answer, solution_steps: q.solution_steps,
+        question_text: q.question || '',
+        question_type: (q.type || 'TN') as QuestionType,
+        topic: q.topic || '',
+        difficulty: (q.difficulty || 'TH') as Difficulty,
+        grade: grade || undefined,
+        chapter: q.chapter || '',
+        lesson_title: q.lesson_title || '',
+        answer: q.answer || '',
+        // Backend QuestionCreateItem expects List[str] or JSON string
+        solution_steps: Array.isArray(q.solution_steps) ? q.solution_steps : [],
       }))
-      const { saved, skipped } = await questionsApi.bulkCreate(questions)
-      setSavedMsg(`✓ Đã lưu ${saved} câu${skipped ? `, bỏ qua ${skipped} trùng` : ''}`)
+      const res = await questionsApi.bulkCreate(questions)
+      setSavedMsg(`✓ Đã lưu ${res.saved} câu${res.skipped ? `, bỏ qua ${res.skipped} trùng` : ''}`)
     } catch (e) {
       setError(getErrorMessage(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const openSendDialog = async () => {
+    setSendTitle(topic || (mode === 'exam' ? 'Đề kiểm tra' : 'Bài tập luyện tập'))
+    setSendClassId(null)
+    setSentMsg('')
+    setSendDialogOpen(true)
+    try {
+      const classes = await classesApi.list()
+      setSendClasses(classes)
+    } catch (e) {
+      setSendClasses([])
+    }
+  }
+
+  const handleSendToClass = async () => {
+    if (!result?.questions.length || !sendClassId) return
+    setSending(true)
+    try {
+      const { exam_id } = await generatorApi.saveAsExam(sendTitle.trim() || 'Bài tập', result.questions)
+      await assignmentsApi.create({ class_id: sendClassId, exam_id, title: sendTitle.trim() || 'Bài tập' })
+      setSentMsg('✓ Đã gửi vào lớp thành công!')
+      setTimeout(() => setSendDialogOpen(false), 1500)
+    } catch (e) {
+      setSentMsg(`⚠ ${getErrorMessage(e)}`)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -742,6 +819,10 @@ export default function GeneratePage() {
                     {saving ? <Loader2 size={13} className="animate-spin" /> : <BookmarkPlus size={13} />}
                     Lưu vào ngân hàng
                   </button>
+                  <button onClick={openSendDialog}
+                    className="btn-primary text-sm flex items-center gap-1.5 py-1.5">
+                    <Send size={13} /> Gửi vào lớp
+                  </button>
                   <button onClick={() => handleExport('docx')} disabled={!!exportLoading}
                     className="btn-primary text-sm flex items-center gap-1.5 py-1.5">
                     {exportLoading === 'docx' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
@@ -805,6 +886,74 @@ export default function GeneratePage() {
           )}
         </div>
       </div>
+
+      {/* Send to class dialog */}
+      {sendDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-text">Gửi vào lớp</h2>
+              <button onClick={() => setSendDialogOpen(false)} className="text-text-dim hover:text-text">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-text-dim mb-1.5 block">Tên bài tập *</label>
+                <input
+                  value={sendTitle}
+                  onChange={e => setSendTitle(e.target.value)}
+                  placeholder="VD: Đề kiểm tra 45 phút chương 2"
+                  className="input text-sm w-full"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-text-dim mb-1.5 block">Chọn lớp *</label>
+                {sendClasses.length === 0 ? (
+                  <div className="text-sm text-text-muted text-center py-4">
+                    Bạn chưa có lớp nào. Tạo lớp trong mục Quản lý lớp trước.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {sendClasses.map(cls => (
+                      <button key={cls.id} onClick={() => setSendClassId(cls.id)}
+                        className={cn(
+                          'w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors',
+                          sendClassId === cls.id
+                            ? 'border-accent bg-accent/10 text-text'
+                            : 'border-bg-border bg-bg-hover text-text-muted hover:text-text'
+                        )}>
+                        <div className="font-medium">{cls.name}</div>
+                        {(cls.subject || cls.grade) && (
+                          <div className="text-xs text-text-dim mt-0.5">
+                            {cls.subject}{cls.grade ? ` · Lớp ${cls.grade}` : ''}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {sentMsg && (
+                <div className={cn('text-sm px-3 py-2 rounded-lg',
+                  sentMsg.startsWith('✓') ? 'bg-green-400/10 text-green-400' : 'bg-red-400/10 text-red-400')}>
+                  {sentMsg}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setSendDialogOpen(false)} className="btn-ghost flex-1 py-2 text-sm">Hủy</button>
+                <button
+                  onClick={handleSendToClass}
+                  disabled={sending || !sendClassId || !sendTitle.trim()}
+                  className="btn-primary flex-1 py-2 text-sm flex items-center justify-center gap-1.5">
+                  {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Gửi bài tập
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

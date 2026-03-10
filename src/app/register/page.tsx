@@ -18,11 +18,13 @@ export default function RegisterPage() {
     e.preventDefault()
     if (!form.email || !form.password) { setError('Vui lòng nhập đầy đủ thông tin'); return }
     if (form.password !== form.confirm) { setError('Mật khẩu xác nhận không khớp'); return }
-    if (form.password.length < 6) { setError('Mật khẩu phải có ít nhất 6 ký tự'); return }
+    if (form.password.length < 8) { setError('Mật khẩu phải có ít nhất 8 ký tự'); return }
+    if (!/[A-Za-z]/.test(form.password)) { setError('Mật khẩu phải có ít nhất 1 chữ cái'); return }
+    if (!/[0-9]/.test(form.password)) { setError('Mật khẩu phải có ít nhất 1 chữ số'); return }
     setLoading(true)
     setError('')
     try {
-      await authApi.register({ email: form.email, password: form.password, full_name: form.full_name || undefined })
+      await authApi.register({ email: form.email, password: form.password, full_name: form.full_name || undefined, role: 'teacher' })
       await login(form.email, form.password)
       router.push('/dashboard')
     } catch (e) {
@@ -32,7 +34,7 @@ export default function RegisterPage() {
     }
   }
 
-  const passwordStrength = form.password.length >= 8 && /[A-Z]/.test(form.password) && /[0-9]/.test(form.password)
+  const passwordStrength = form.password.length >= 8 && /[A-Za-z]/.test(form.password) && /[0-9]/.test(form.password)
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
@@ -74,7 +76,7 @@ export default function RegisterPage() {
                   type={showPw ? 'text' : 'password'}
                   value={form.password}
                   onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder="Ít nhất 6 ký tự"
+                  placeholder="Ít nhất 8 ký tự, có chữ và số"
                   className="input pr-10"
                 />
                 <button type="button" onClick={() => setShowPw(s => !s)}
@@ -85,8 +87,8 @@ export default function RegisterPage() {
               {form.password && (
                 <div className="mt-2 flex gap-2">
                   {[
-                    { label: '6+ ký tự', ok: form.password.length >= 6 },
-                    { label: 'Chữ hoa', ok: /[A-Z]/.test(form.password) },
+                    { label: '8+ ký tự', ok: form.password.length >= 8 },
+                    { label: 'Chữ cái', ok: /[A-Za-z]/.test(form.password) },
                     { label: 'Số', ok: /[0-9]/.test(form.password) },
                   ].map(c => (
                     <div key={c.label} className={`flex items-center gap-1 text-xs ${c.ok ? 'text-green-400' : 'text-text-dim'}`}>

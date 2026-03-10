@@ -4,11 +4,12 @@ export interface User {
   email: string
   full_name?: string
   is_active: boolean
+  role: 'student' | 'teacher' | 'admin'
   created_at: string
 }
 
 export interface LoginRequest { email: string; password: string }
-export interface RegisterRequest { email: string; password: string; full_name?: string }
+export interface RegisterRequest { email: string; password: string; full_name?: string; role?: 'student' | 'teacher' }
 export interface AuthToken { access_token: string; token_type: string }
 
 // ─── Exam & Parser ────────────────────────────────────────────────────────────
@@ -54,6 +55,8 @@ export interface Question {
   solution_steps?: string[]
   exam_id?: number
   user_id: number
+  is_public: boolean
+  author_email?: string
   created_at: string
 }
 
@@ -79,9 +82,12 @@ export interface QuestionUpdate {
   difficulty?: Difficulty
   topic?: string
   chapter?: string
+  lesson_title?: string
+  grade?: number
   answer?: string
   solution_steps?: string
   options?: string[]
+  is_public?: boolean
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -295,12 +301,17 @@ export interface ClassMember {
 export interface Assignment {
   id: number
   class_id: number
+  class_name?: string
   title: string
   description?: string
   exam_id?: number
-  due_date?: string
+  deadline?: string
+  max_attempts?: number
+  show_answer?: boolean
   is_active: boolean
   created_at: string
+  submission_count?: number
+  completed_count?: number
 }
 
 export interface AssignmentCreate {
@@ -308,7 +319,7 @@ export interface AssignmentCreate {
   title: string
   description?: string
   exam_id?: number
-  due_date?: string
+  deadline?: string
   question_ids?: number[]
 }
 

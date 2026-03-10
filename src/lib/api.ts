@@ -3,7 +3,7 @@ import type {
   AuthToken, LoginRequest, RegisterRequest, User,
   DashboardStats, ChartData, Activity,
   Question, QuestionListResponse, QuestionFilters, QuestionUpdate,
-  GenerateRequest, ExamGenerateRequest, PromptGenerateRequest, GenerateResponse,
+  GenerateRequest, ExamGenerateRequest, PromptGenerateRequest, GenerateResponse, GeneratedQuestion,
   GeneratorExportRequest,
   ClassRoom, ClassCreate, ClassMember,
   Assignment, AssignmentCreate,
@@ -149,6 +149,7 @@ export const questionsApi = {
     page?: number; page_size?: number
     type?: string; topic?: string; difficulty?: string
     grade?: number; chapter?: string; keyword?: string; exam_id?: number
+    my_only?: boolean
   }) => api.get<QuestionListResponse>('/questions', { params }).then(r => r.data),
 
   getFilters: () =>
@@ -180,6 +181,10 @@ export const generatorApi = {
   // RAG prompt mode: POST /api/v1/generate/from-prompt
   generateFromPrompt: (data: PromptGenerateRequest) =>
     api.post<GenerateResponse>('/generate/from-prompt', data).then(r => r.data),
+
+  // Save AI-generated questions as an Exam record: POST /api/v1/generate/save-as-exam
+  saveAsExam: (title: string, questions: GeneratedQuestion[]) =>
+    api.post<{ exam_id: number; question_count: number }>('/generate/save-as-exam', { title, questions }).then(r => r.data),
 }
 
 // ─── Curriculum ───────────────────────────────────────────────────────────────
@@ -275,7 +280,7 @@ export const classesApi = {
     api.get<ClassRoom>(`/classes/${id}`).then(r => r.data),
 
   update: (id: number, data: Partial<ClassCreate>) =>
-    api.put<ClassRoom>(`/classes/${id}`, data).then(r => r.data),
+    api.patch<ClassRoom>(`/classes/${id}`, data).then(r => r.data),
 
   delete: (id: number) =>
     api.delete(`/classes/${id}`),
@@ -290,7 +295,7 @@ export const classesApi = {
     api.post<{ message: string }>('/classes/join', { code }).then(r => r.data),
 
   getLeaderboard: (classId: number) =>
-    api.get<LeaderboardEntry[]>(`/classes/${classId}/leaderboard`).then(r => r.data),
+    api.get<LeaderboardEntry[]>(`/submissions/leaderboard/${classId}`).then(r => r.data),
 }
 
 // ─── Assignments ─────────────────────────────────────────────────────────────
