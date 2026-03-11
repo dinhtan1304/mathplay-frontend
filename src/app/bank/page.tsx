@@ -15,6 +15,7 @@ const TYPE_OPTIONS = ['TN', 'TL', 'DS', 'GH'] as const
 const DIFF_BAR: Record<string, string> = {
   NB: 'bg-green-400', TH: 'bg-blue-400', VD: 'bg-yellow-400', VDC: 'bg-red-400',
 }
+
 const GRADES = [6, 7, 8, 9, 10, 11, 12]
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
