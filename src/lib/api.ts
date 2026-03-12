@@ -166,6 +166,12 @@ export const questionsApi = {
 
   bulkCreate: (questions: Partial<Question>[]) =>
     api.post<{ saved: number; skipped: number }>('/questions/bulk', { questions }).then(r => r.data),
+
+  bulkVisibility: (questionIds: number[], isPublic: boolean) =>
+    api.patch<{ detail: string; updated: number; is_public: boolean }>('/questions/bulk-visibility', {
+      question_ids: questionIds,
+      is_public: isPublic,
+    }).then(r => r.data),
 }
 
 // ─── Generator ───────────────────────────────────────────────────────────────
@@ -338,6 +344,18 @@ export const gameApi = {
       assignment_id: assignmentId,
       game_mode: gameMode,
     }).then(r => r.data),
+}
+
+
+// ─── Admin CMS ──────────────────────────────────────────────────────────────
+export const adminApi = {
+  getStats: () => api.get<{ total_users: number; total_questions: number; total_exams: number; active_users: number }>('/admin/stats').then(r => r.data),
+  getUsers: (skip = 0, limit = 20, search?: string, role?: string) => api.get<{ total: number; items: User[] }>('/admin/users', { params: { skip, limit, ...(search ? { search } : {}), ...(role ? { role } : {}) } }).then(r => r.data),
+  updateUser: (id: number, data: { role?: string; is_active?: boolean }) => api.patch<User>(`/admin/users/${id}`, data).then(r => r.data),
+  getQuestions: (page = 1, pageSize = 20, search?: string) => api.get<{ total: number; items: Question[] }>('/admin/questions', { params: { page, page_size: pageSize, ...(search ? { search } : {}) } }).then(r => r.data),
+  updateQuestion: (id: number, data: QuestionUpdate) => api.put<Question>(`/admin/questions/${id}`, data).then(r => r.data),
+  deleteQuestion: (id: number) => api.delete(`/admin/questions/${id}`).then(r => r.data),
+  bulkVisibility: (ids: number[], isPublic: boolean) => api.patch('/admin/questions/bulk-visibility', { question_ids: ids, is_public: isPublic }).then(r => r.data),
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────

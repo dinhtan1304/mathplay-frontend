@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { questionsApi, bankExportApi, curriculumApi, authApi } from '@/lib/api'
 import type { Question, QuestionFilters, QuestionUpdate, CurriculumTree, CurriculumChapter } from '@/types'
 import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn, formatDateTime } from '@/lib/utils'
@@ -8,6 +8,7 @@ import {
   Search, Download, Pencil, Trash2, X, ChevronLeft, ChevronRight,
   Check, Loader2, BookOpen, ChevronDown, FileText, FileCode,
   SlidersHorizontal, CheckSquare, Square, Globe, Lock, User,
+  Eye, EyeOff, Filter,
 } from 'lucide-react'
 
 const DIFF_OPTIONS = ['NB', 'TH', 'VD', 'VDC'] as const
@@ -15,8 +16,155 @@ const TYPE_OPTIONS = ['TN', 'TL', 'DS', 'GH'] as const
 const DIFF_BAR: Record<string, string> = {
   NB: 'bg-green-400', TH: 'bg-blue-400', VD: 'bg-yellow-400', VDC: 'bg-red-400',
 }
+const DIFF_DOT: Record<string, string> = {
+  NB: 'bg-green-400', TH: 'bg-blue-400', VD: 'bg-yellow-400', VDC: 'bg-red-400',
+}
 
 const GRADES = [6, 7, 8, 9, 10, 11, 12]
+
+// ─── Searchable Multi-Select Dropdown ─────────────────────────────────────────
+function FilterDropdown({ label, items, selected, onToggle, labelMap, colorMap, placeholder }: {
+  label: string
+  items: string[]
+  selected: string[]
+  onToggle: (val: string) => void
+  labelMap?: Record<string, string>
+  colorMap?: Record<string, string>
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Focus search input when opening
+  useEffect(() => {
+    if (open && inputRef.current) inputRef.current.focus()
+  }, [open])
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return items
+    const q = query.toLowerCase()
+    return items.filter(item => {
+      const text = labelMap?.[item] || item
+      return text.toLowerCase().includes(q)
+    })
+  }, [items, query, labelMap])
+
+  const selectedCount = selected.length
+  const displayText = selectedCount === 0
+    ? (placeholder || `Chọn ${label.toLowerCase()}`)
+    : selectedCount === 1
+      ? (labelMap?.[selected[0]] || selected[0])
+      : `${selectedCount} đã chọn`
+
+  if (items.length === 0) return null
+
+  return (
+    <div ref={ref} className="relative">
+      <p className="text-[10px] font-semibold text-text-dim uppercase tracking-wider mb-1.5">{label}</p>
+      <button
+        onClick={() => { setOpen(o => !o); setQuery('') }}
+        className={cn(
+          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-xs border transition-all duration-150',
+          open ? 'border-accent bg-accent/5 text-accent' :
+          selectedCount > 0 ? 'border-accent/50 text-accent bg-accent/5' :
+          'border-bg-border text-text-muted hover:border-text-dim hover:text-text'
+        )}
+      >
+        <span className="truncate text-left">{displayText}</span>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {selectedCount > 0 && (
+            <span
+              className="w-4 h-4 rounded-full bg-accent text-white text-[9px] flex items-center justify-center"
+              onClick={(e) => { e.stopPropagation(); selected.forEach(s => onToggle(s)) }}
+              title="Xóa tất cả"
+            >
+              {selectedCount}
+            </span>
+          )}
+          <ChevronDown size={12} className={cn('transition-transform duration-200', open && 'rotate-180')} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-bg-card border border-bg-border rounded-xl shadow-2xl z-30 overflow-hidden animate-slide-up">
+          {/* Search input */}
+          {items.length > 5 && (
+            <div className="p-2 border-b border-bg-border">
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder={`Tìm ${label.toLowerCase()}...`}
+                  className="w-full bg-bg-hover border-0 rounded-lg text-xs py-1.5 pl-7 pr-2 text-text placeholder:text-text-dim focus:outline-none focus:ring-1 focus:ring-accent/30"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Options list */}
+          <div className="max-h-52 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-xs text-text-dim">Không tìm thấy</div>
+            ) : (
+              filtered.map(item => {
+                const isSelected = selected.includes(item)
+                const itemLabel = labelMap?.[item] || item
+                const dotColor = colorMap?.[item]
+                return (
+                  <button
+                    key={item}
+                    onClick={() => onToggle(item)}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors',
+                      isSelected
+                        ? 'bg-accent/10 text-accent font-medium'
+                        : 'text-text-muted hover:text-text hover:bg-bg-hover'
+                    )}
+                  >
+                    {isSelected
+                      ? <CheckSquare size={12} className="text-accent flex-shrink-0" />
+                      : <Square size={12} className="flex-shrink-0 opacity-50" />
+                    }
+                    {dotColor && <span className={cn('w-2 h-2 rounded-full flex-shrink-0', dotColor)} />}
+                    <span className="truncate text-left">{itemLabel}</span>
+                  </button>
+                )
+              })
+            )}
+          </div>
+
+          {/* Quick actions footer */}
+          {selectedCount > 0 && (
+            <div className="px-3 py-1.5 border-t border-bg-border flex justify-end">
+              <button
+                onClick={() => { selected.forEach(s => onToggle(s)); setQuery('') }}
+                className="text-[10px] text-text-dim hover:text-red-400 transition-colors flex items-center gap-1"
+              >
+                <X size={9} /> Bỏ chọn tất cả
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── Edit Modal ───────────────────────────────────────────────────────────────
 function EditModal({ q, onSave, onClose }: {
@@ -37,7 +185,6 @@ function EditModal({ q, onSave, onClose }: {
   const [saving, setSaving] = useState(false)
   const [curriculum, setCurriculum] = useState<CurriculumTree | null>(null)
 
-  // Load curriculum tree for grade/chapter dropdowns
   useEffect(() => {
     curriculumApi.getTree().then(setCurriculum).catch(() => { })
   }, [])
@@ -63,13 +210,10 @@ function EditModal({ q, onSave, onClose }: {
           <button onClick={onClose} className="w-8 h-8 rounded-lg hover:bg-bg-hover flex items-center justify-center text-text-dim hover:text-text transition-colors"><X size={16} /></button>
         </div>
         <div className="p-6 space-y-5">
-          {/* Question text */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Nội dung câu hỏi</label>
             <textarea value={form.question_text || ''} onChange={e => setForm(f => ({ ...f, question_text: e.target.value }))} className="input resize-none h-32 font-mono text-sm" placeholder="Hỗ trợ LaTeX $...$" />
           </div>
-
-          {/* Type + Difficulty */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Loại câu</label>
@@ -85,8 +229,6 @@ function EditModal({ q, onSave, onClose }: {
               </select>
             </div>
           </div>
-
-          {/* Curriculum: Grade → Chapter → Lesson */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Lớp</label>
             <div className="flex gap-1.5 flex-wrap">
@@ -106,77 +248,47 @@ function EditModal({ q, onSave, onClose }: {
               ))}
             </div>
           </div>
-
           {form.grade && chapters.length > 0 && (
             <div>
               <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Chương</label>
-              <select
-                value={form.chapter || ''}
-                onChange={e => setForm(f => ({ ...f, chapter: e.target.value, lesson_title: '' }))}
-                className="input text-sm"
-              >
+              <select value={form.chapter || ''} onChange={e => setForm(f => ({ ...f, chapter: e.target.value, lesson_title: '' }))} className="input text-sm">
                 <option value="">— Chọn chương —</option>
-                {chapters.map(c => (
-                  <option key={c.chapter_no} value={c.chapter}>{c.chapter}</option>
-                ))}
+                {chapters.map(c => <option key={c.chapter_no} value={c.chapter}>{c.chapter}</option>)}
               </select>
             </div>
           )}
-
           {form.chapter && lessons.length > 0 && (
             <div>
               <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Bài học</label>
-              <select
-                value={form.lesson_title || ''}
-                onChange={e => setForm(f => ({ ...f, lesson_title: e.target.value }))}
-                className="input text-sm"
-              >
+              <select value={form.lesson_title || ''} onChange={e => setForm(f => ({ ...f, lesson_title: e.target.value }))} className="input text-sm">
                 <option value="">— Chọn bài —</option>
-                {lessons.map(l => (
-                  <option key={l.id} value={l.lesson_title}>{l.lesson_title}</option>
-                ))}
+                {lessons.map(l => <option key={l.id} value={l.lesson_title}>{l.lesson_title}</option>)}
               </select>
             </div>
           )}
-
-          {/* Topic (manual) */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Chủ đề</label>
             <input value={form.topic || ''} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} className="input" />
           </div>
-
-          {/* Answer */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Đáp án</label>
             <input value={form.answer || ''} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))} className="input font-mono" />
           </div>
-
-          {/* Solution steps */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Hướng dẫn giải <span className="normal-case text-text-dim">(mỗi bước 1 dòng)</span></label>
             <textarea value={(Array.isArray(form.solution_steps) ? form.solution_steps.join('\n') : form.solution_steps || '')} onChange={e => setForm(f => ({ ...f, solution_steps: e.target.value }))} className="input resize-none h-24 font-mono text-sm" />
           </div>
-
-          {/* Public / Private toggle */}
           <div>
             <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">Hiển thị</label>
             <div className="flex gap-2">
-              <button
-                onClick={() => setForm(f => ({ ...f, is_public: true }))}
+              <button onClick={() => setForm(f => ({ ...f, is_public: true }))}
                 className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm border transition-colors',
                   form.is_public ? 'border-green-500 text-green-400 bg-green-500/10' : 'border-bg-border text-text-dim hover:text-text'
-                )}
-              >
-                <Globe size={14} /> Công khai
-              </button>
-              <button
-                onClick={() => setForm(f => ({ ...f, is_public: false }))}
+                )}><Globe size={14} /> Công khai</button>
+              <button onClick={() => setForm(f => ({ ...f, is_public: false }))}
                 className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm border transition-colors',
                   !form.is_public ? 'border-yellow-500 text-yellow-400 bg-yellow-500/10' : 'border-bg-border text-text-dim hover:text-text'
-                )}
-              >
-                <Lock size={14} /> Riêng tư
-              </button>
+                )}><Lock size={14} /> Riêng tư</button>
             </div>
           </div>
         </div>
@@ -331,28 +443,35 @@ export default function BankPage() {
   const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [questions, setQuestions] = useState<Question[]>([])
   const [filters, setFilters] = useState<QuestionFilters | null>(null)
+  const [curriculum, setCurriculum] = useState<CurriculumTree | null>(null)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const pageSize = 20
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filterType, setFilterType] = useState('')
-  const [filterDiff, setFilterDiff] = useState('')
-  const [filterTopic, setFilterTopic] = useState('')
-  const [filterGrade, setFilterGrade] = useState<number | null>(null)
-  const [filterChapter, setFilterChapter] = useState('')
+
+  // Filter states — multi-select arrays
+  const [filterTypes, setFilterTypes] = useState<string[]>([])
+  const [filterDiffs, setFilterDiffs] = useState<string[]>([])
+  const [filterTopics, setFilterTopics] = useState<string[]>([])
+  const [filterGrades, setFilterGrades] = useState<number[]>([])
+  const [filterChapters, setFilterChapters] = useState<string[]>([])
   const [myOnly, setMyOnly] = useState(false)
+
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [editingQ, setEditingQ] = useState<Question | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
+  const [bulkAction, setBulkAction] = useState(false)
+  const [showFilterSidebar, setShowFilterSidebar] = useState(true)
 
-  // Fetch current user id
+  // Fetch initial data
   useEffect(() => {
     authApi.me().then(u => setCurrentUserId(u.id)).catch(() => { })
+    questionsApi.getFilters().then(setFilters).catch(() => { })
+    curriculumApi.getTree().then(setCurriculum).catch(() => { })
   }, [])
 
   useEffect(() => {
@@ -360,37 +479,70 @@ export default function BankPage() {
     return () => clearTimeout(t)
   }, [search])
 
+  // ─── Derived: chapters & topics filtered by selected grades ────────────────
+  const availableChapters = useMemo(() => {
+    if (!curriculum) return filters?.chapters || []
+    if (filterGrades.length === 0) {
+      // No grade selected → show all chapters from curriculum
+      const allChapters = new Set<string>()
+      curriculum.grades.forEach(g => g.chapters.forEach(c => allChapters.add(c.chapter)))
+      return Array.from(allChapters).sort()
+    }
+    // Filter chapters by selected grades
+    const chaptersForGrades = new Set<string>()
+    curriculum.grades
+      .filter(g => filterGrades.includes(g.grade))
+      .forEach(g => g.chapters.forEach(c => chaptersForGrades.add(c.chapter)))
+    return Array.from(chaptersForGrades).sort()
+  }, [curriculum, filterGrades, filters?.chapters])
+
+  const availableTopics = useMemo(() => {
+    return filters?.topics || []
+  }, [filters?.topics])
+
+  // When grades change, remove chapters that are no longer valid
+  useEffect(() => {
+    if (filterChapters.length > 0 && availableChapters.length > 0) {
+      const valid = filterChapters.filter(ch => availableChapters.includes(ch))
+      if (valid.length !== filterChapters.length) {
+        setFilterChapters(valid)
+      }
+    }
+  }, [availableChapters, filterChapters])
+
+  // ─── Load questions ────────────────────────────────────────────────────────
   const loadQuestions = useCallback(async () => {
     setLoading(true)
     try {
       const res = await questionsApi.list({
         page,
         page_size: pageSize,
-        type: filterType || undefined,
-        difficulty: filterDiff || undefined,
-        topic: filterTopic || undefined,
-        grade: filterGrade || undefined,
-        chapter: filterChapter || undefined,
+        type: filterTypes.length === 1 ? filterTypes[0] : undefined,
+        difficulty: filterDiffs.length === 1 ? filterDiffs[0] : undefined,
+        topic: filterTopics.length === 1 ? filterTopics[0] : undefined,
+        grade: filterGrades.length === 1 ? filterGrades[0] : undefined,
+        chapter: filterChapters.length === 1 ? filterChapters[0] : undefined,
         keyword: debouncedSearch || undefined,
         my_only: myOnly || undefined,
       })
-      setQuestions(res.items); setTotal(res.total)
+      // Client-side multi-filter when more than 1 selected
+      let items = res.items
+      if (filterTypes.length > 1) items = items.filter(q => filterTypes.includes(q.question_type))
+      if (filterDiffs.length > 1) items = items.filter(q => q.difficulty && filterDiffs.includes(q.difficulty))
+      if (filterGrades.length > 1) items = items.filter(q => q.grade !== undefined && filterGrades.includes(q.grade))
+      if (filterTopics.length > 1) items = items.filter(q => q.topic && filterTopics.includes(q.topic))
+      if (filterChapters.length > 1) items = items.filter(q => q.chapter && filterChapters.includes(q.chapter))
+      setQuestions(items); setTotal(res.total)
     } catch (err) {
       console.error('Failed to load questions:', err)
       setQuestions([]); setTotal(0)
     } finally { setLoading(false) }
-  }, [page, filterType, filterDiff, filterTopic, filterGrade, filterChapter, debouncedSearch, myOnly])
+  }, [page, filterTypes, filterDiffs, filterTopics, filterGrades, filterChapters, debouncedSearch, myOnly])
 
   useEffect(() => { loadQuestions() }, [loadQuestions])
-  useEffect(() => { questionsApi.getFilters().then(setFilters).catch(() => { }) }, [])
-  useEffect(() => { setPage(1) }, [filterType, filterDiff, filterTopic, filterGrade, filterChapter, debouncedSearch, myOnly])
+  useEffect(() => { setPage(1) }, [filterTypes, filterDiffs, filterTopics, filterGrades, filterChapters, debouncedSearch, myOnly])
 
-  // When grade changes, reset chapter filter
-  const handleGradeSelect = (g: number | null) => {
-    setFilterGrade(g)
-    setFilterChapter('')
-  }
-
+  // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleDelete = async (id: number) => {
     setDeleting(id); setDeletingId(null)
     try {
@@ -408,15 +560,32 @@ export default function BankPage() {
     setEditingQ(null)
   }
 
+  const handleBulkVisibility = async (isPublic: boolean) => {
+    if (selectedIds.size === 0) return
+    setBulkAction(true)
+    try {
+      const ids = Array.from(selectedIds)
+      await questionsApi.bulkVisibility(ids, isPublic)
+      setQuestions(qs => qs.map(q =>
+        selectedIds.has(q.id) && q.user_id === currentUserId
+          ? { ...q, is_public: isPublic }
+          : q
+      ))
+      setSelectedIds(new Set())
+    } catch (err) {
+      console.error('Bulk visibility failed:', err)
+    } finally { setBulkAction(false) }
+  }
+
   const exportSelected = async (format: 'docx' | 'pdf' | 'latex') => {
     setExporting(true)
     const params = {
-      topic: filterTopic || undefined,
-      difficulty: filterDiff || undefined,
-      question_type: filterType || undefined,
+      topic: filterTopics.length === 1 ? filterTopics[0] : undefined,
+      difficulty: filterDiffs.length === 1 ? filterDiffs[0] : undefined,
+      question_type: filterTypes.length === 1 ? filterTypes[0] : undefined,
       keyword: search || undefined,
-      grade: filterGrade || undefined,
-      chapter: filterChapter || undefined,
+      grade: filterGrades.length === 1 ? filterGrades[0] : undefined,
+      chapter: filterChapters.length === 1 ? filterChapters[0] : undefined,
     }
     try {
       if (format === 'pdf') {
@@ -432,55 +601,119 @@ export default function BankPage() {
     finally { setExporting(false) }
   }
 
-  // Chapters for selected grade
-  const availableChapters = filterGrade && filters?.chapters
-    ? filters.chapters
-    : []
+  // Toggle helpers
+  const toggleFilter = <T,>(arr: T[], val: T, setter: (v: T[]) => void) => {
+    setter(arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val])
+  }
+
+  const activeFilterCount = filterTypes.length + filterDiffs.length + filterTopics.length + filterGrades.length + filterChapters.length
+  const hasActiveFilter = activeFilterCount > 0 || !!search
+  const clearAllFilters = () => {
+    setFilterTypes([]); setFilterDiffs([]); setFilterTopics([])
+    setFilterGrades([]); setFilterChapters([]); setSearch('')
+  }
 
   const allSelected = selectedIds.size === questions.length && questions.length > 0
-  const hasActiveFilter = !!(filterType || filterDiff || filterTopic || filterGrade || filterChapter || search)
   const totalPages = Math.ceil(total / pageSize)
+  const selectedOwnedIds = questions.filter(q => selectedIds.has(q.id) && q.user_id === currentUserId).map(q => q.id)
+  const hasOwnedSelection = selectedOwnedIds.length > 0
 
   return (
     <div className="h-full flex">
       {editingQ && <EditModal q={editingQ} onSave={handleUpdate} onClose={() => setEditingQ(null)} />}
       {deletingId !== null && <DeleteConfirm onConfirm={() => handleDelete(deletingId)} onCancel={() => setDeletingId(null)} />}
 
-      {/* Grade Sidebar */}
-      <div className="w-40 flex-shrink-0 border-r border-bg-border flex flex-col py-4 gap-0.5 overflow-y-auto">
-        <p className="text-[10px] font-medium text-text-dim uppercase tracking-wide px-4 mb-2">Lớp</p>
-        <button
-          onClick={() => handleGradeSelect(null)}
-          className={cn('flex items-center justify-between px-4 py-2 text-sm transition-colors rounded-lg mx-2',
-            !filterGrade ? 'text-accent bg-accent/10 font-medium' : 'text-text-muted hover:text-text hover:bg-bg-hover'
-          )}
-        >
-          <span>Tất cả</span>
-          {!filterGrade && <span className="text-[10px] text-accent">{total}</span>}
-        </button>
-        {GRADES.map(g => (
-          <button
-            key={g}
-            onClick={() => handleGradeSelect(g)}
-            className={cn('flex items-center justify-between px-4 py-2 text-sm transition-colors rounded-lg mx-2',
-              filterGrade === g ? 'text-accent bg-accent/10 font-medium' : 'text-text-muted hover:text-text hover:bg-bg-hover'
+      {/* ─── Filter Sidebar ──────────────────────────────────────────────── */}
+      {showFilterSidebar && (
+        <div className="w-60 flex-shrink-0 border-r border-bg-border flex flex-col h-full overflow-hidden">
+          {/* Sidebar header */}
+          <div className="px-4 py-3 border-b border-bg-border flex items-center justify-between flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <Filter size={14} className="text-accent" />
+              <span className="text-xs font-semibold text-text uppercase tracking-wider">Bộ lọc</span>
+            </div>
+            {activeFilterCount > 0 && (
+              <button onClick={clearAllFilters}
+                className="flex items-center gap-1 text-[10px] text-text-dim hover:text-red-400 transition-colors"
+                title="Xóa tất cả bộ lọc"
+              >
+                <X size={10} /> Xóa ({activeFilterCount})
+              </button>
             )}
-          >
-            <span>Lớp {g}</span>
-          </button>
-        ))}
+          </div>
 
-        <div className="mt-auto pt-4 border-t border-bg-border mx-2">
-          <button
-            onClick={() => setMyOnly(m => !m)}
-            className={cn('w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors',
-              myOnly ? 'text-accent bg-accent/10 font-medium' : 'text-text-dim hover:text-text hover:bg-bg-hover'
+          {/* Scrollable filter content */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+            {/* Grade dropdown */}
+            <FilterDropdown
+              label="Lớp"
+              items={GRADES.map(String)}
+              selected={filterGrades.map(String)}
+              onToggle={(val) => toggleFilter(filterGrades, Number(val), setFilterGrades)}
+              labelMap={Object.fromEntries(GRADES.map(g => [String(g), `Lớp ${g}`]))}
+              placeholder="Tất cả lớp"
+            />
+
+            {/* Difficulty dropdown */}
+            <FilterDropdown
+              label="Độ khó"
+              items={[...DIFF_OPTIONS]}
+              selected={filterDiffs}
+              onToggle={(val) => toggleFilter(filterDiffs, val, setFilterDiffs)}
+              labelMap={DIFFICULTY_LABELS}
+              colorMap={DIFF_DOT}
+              placeholder="Tất cả độ khó"
+            />
+
+            {/* Type dropdown */}
+            <FilterDropdown
+              label="Loại câu"
+              items={[...TYPE_OPTIONS]}
+              selected={filterTypes}
+              onToggle={(val) => toggleFilter(filterTypes, val, setFilterTypes)}
+              labelMap={TYPE_LABELS}
+              placeholder="Tất cả loại"
+            />
+
+            {/* Chapter dropdown — auto-filtered by selected grades */}
+            <FilterDropdown
+              label="Chương"
+              items={availableChapters}
+              selected={filterChapters}
+              onToggle={(val) => toggleFilter(filterChapters, val, setFilterChapters)}
+              placeholder={filterGrades.length > 0
+                ? `Chương thuộc ${filterGrades.length === 1 ? `lớp ${filterGrades[0]}` : `${filterGrades.length} lớp`}`
+                : 'Tất cả chương'
+              }
+            />
+
+            {/* Topic dropdown */}
+            {availableTopics.length > 0 && (
+              <FilterDropdown
+                label="Chủ đề"
+                items={availableTopics}
+                selected={filterTopics}
+                onToggle={(val) => toggleFilter(filterTopics, val, setFilterTopics)}
+                placeholder="Tất cả chủ đề"
+              />
             )}
-          >
-            <User size={12} /> Của tôi
-          </button>
+          </div>
+
+          {/* Bottom: My Only */}
+          <div className="px-3 py-3 border-t border-bg-border flex-shrink-0">
+            <button
+              onClick={() => setMyOnly(m => !m)}
+              className={cn('w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-all duration-150',
+                myOnly ? 'text-accent bg-accent/10 font-medium' : 'text-text-dim hover:text-text hover:bg-bg-hover'
+              )}
+            >
+              {myOnly ? <CheckSquare size={13} className="text-accent" /> : <Square size={13} />}
+              <User size={12} />
+              <span>Chỉ của tôi</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 min-w-0 flex flex-col h-full">
@@ -490,126 +723,118 @@ export default function BankPage() {
             <h1 className="text-2xl font-bold text-text">Ngân hàng đề</h1>
             <p className="text-text-muted text-sm mt-0.5">
               {loading ? '...' : `${total.toLocaleString()} câu hỏi`}
-              {filterGrade && <span className="text-accent ml-1">· Lớp {filterGrade}</span>}
+              {filterGrades.length === 1 && <span className="text-accent ml-1">· Lớp {filterGrades[0]}</span>}
+              {filterGrades.length > 1 && <span className="text-accent ml-1">· {filterGrades.length} lớp</span>}
               {myOnly && <span className="text-accent ml-1">· Của tôi</span>}
-              {hasActiveFilter && !filterGrade && !myOnly && <span className="text-accent ml-1">· đang lọc</span>}
+              {activeFilterCount > 0 && (
+                <span className="ml-1.5 inline-flex items-center gap-1 text-accent">
+                  <SlidersHorizontal size={11} /> {activeFilterCount} lọc
+                </span>
+              )}
             </p>
           </div>
-          <ExportDropdown onExport={exportSelected} loading={exporting} />
+          <div className="flex items-center gap-2">
+            <ExportDropdown onExport={exportSelected} loading={exporting} />
+          </div>
         </div>
 
-        {/* Search + Filter Bar */}
+        {/* Search + Toggle + Bulk */}
         <div className="px-6 pb-4 flex-shrink-0 space-y-3">
           <div className="flex gap-2">
+            {/* Toggle filter sidebar */}
+            <button
+              onClick={() => setShowFilterSidebar(f => !f)}
+              className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors',
+                showFilterSidebar
+                  ? 'border-accent text-accent bg-accent/10'
+                  : 'border-bg-border text-text-muted hover:text-text hover:bg-bg-hover'
+              )}
+              title={showFilterSidebar ? 'Ẩn bộ lọc' : 'Hiện bộ lọc'}
+            >
+              <SlidersHorizontal size={14} />
+              {activeFilterCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-accent text-white text-[10px] flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
+            {/* Search */}
             <div className="relative flex-1">
               <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-dim pointer-events-none" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Tìm kiếm câu hỏi..." className="input pl-10 text-sm" />
               {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text transition-colors"><X size={14} /></button>}
             </div>
-            <button
-              onClick={() => setShowFilters(f => !f)}
-              className={cn('flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors',
-                (showFilters || filterType || filterDiff || filterTopic)
-                  ? 'border-accent text-accent bg-accent/10'
-                  : 'border-bg-border text-text-muted hover:text-text hover:bg-bg-hover'
-              )}
-            >
-              <SlidersHorizontal size={14} />
-              Lọc
-              {(filterType || filterDiff || filterTopic) && (
-                <span className="w-4 h-4 rounded-full bg-accent text-white text-[10px] flex items-center justify-center">
-                  {[filterType, filterDiff, filterTopic].filter(Boolean).length}
-                </span>
-              )}
-            </button>
           </div>
 
-          {/* Chapter chips — show when grade is selected */}
-          {filterGrade && availableChapters.length > 0 && (
-            <div className="flex gap-1.5 flex-wrap">
-              <button
-                onClick={() => setFilterChapter('')}
-                className={cn('px-3 py-1 rounded-full text-xs border transition-colors',
-                  !filterChapter ? 'border-accent text-accent bg-accent/10' : 'border-bg-border text-text-dim hover:text-text'
-                )}
-              >Tất cả chương</button>
-              {availableChapters.map(ch => (
-                <button
-                  key={ch}
-                  onClick={() => setFilterChapter(filterChapter === ch ? '' : ch)}
-                  className={cn('px-3 py-1 rounded-full text-xs border transition-colors truncate max-w-[200px]',
-                    filterChapter === ch ? 'border-accent text-accent bg-accent/10' : 'border-bg-border text-text-dim hover:text-text'
-                  )}
-                  title={ch}
-                >
-                  {ch.length > 30 ? ch.slice(0, 30) + '…' : ch}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {showFilters && (
-            <div className="bg-bg-card border border-bg-border rounded-xl p-4 animate-slide-up">
-              <div className="flex flex-wrap gap-4">
-                <div className="flex-1 min-w-36">
-                  <label className="text-[10px] font-medium text-text-dim uppercase tracking-wide mb-1.5 block">Loại câu</label>
-                  <select value={filterType} onChange={e => setFilterType(e.target.value)} className="input text-sm">
-                    <option value="">Tất cả</option>
-                    {TYPE_OPTIONS.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
-                  </select>
-                </div>
-                <div className="flex-1 min-w-48">
-                  <label className="text-[10px] font-medium text-text-dim uppercase tracking-wide mb-1.5 block">Độ khó</label>
-                  <div className="flex gap-1.5">
-                    {DIFF_OPTIONS.map(d => (
-                      <button key={d} onClick={() => setFilterDiff(filterDiff === d ? '' : d)}
-                        className={cn('flex-1 py-2 rounded-lg text-xs font-medium border transition-colors',
-                          filterDiff === d ? `${DIFFICULTY_COLORS[d]} border-current` : 'border-bg-border text-text-dim hover:text-text'
-                        )}>
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {filters?.topics && filters.topics.length > 0 && (
-                  <div className="flex-1 min-w-44">
-                    <label className="text-[10px] font-medium text-text-dim uppercase tracking-wide mb-1.5 block">Chủ đề</label>
-                    <select value={filterTopic} onChange={e => setFilterTopic(e.target.value)} className="input text-sm">
-                      <option value="">Tất cả</option>
-                      {filters.topics.map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </div>
-                )}
-                {hasActiveFilter && (
-                  <div className="flex items-end">
-                    <button onClick={() => { setFilterType(''); setFilterDiff(''); setFilterTopic(''); setSearch('') }}
-                      className="flex items-center gap-1.5 text-xs text-text-dim hover:text-red-400 transition-colors py-2 px-3 rounded-lg hover:bg-red-400/10">
-                      <X size={12} /> Xóa lọc
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Active filter chips */}
-          {(filterType || filterDiff || filterTopic) && !showFilters && (
-            <div className="flex gap-2 flex-wrap">
-              {filterType && (
-                <span className="flex items-center gap-1.5 text-xs bg-accent/10 text-accent px-2.5 py-1 rounded-full">
-                  {TYPE_LABELS[filterType]}<button onClick={() => setFilterType('')}><X size={10} /></button>
+          {activeFilterCount > 0 && (
+            <div className="flex gap-1.5 flex-wrap items-center">
+              {filterGrades.map(g => (
+                <span key={`g-${g}`} className="flex items-center gap-1.5 text-[10px] bg-accent/10 text-accent px-2 py-1 rounded-full">
+                  Lớp {g}
+                  <button onClick={() => toggleFilter(filterGrades, g, setFilterGrades)}><X size={9} /></button>
                 </span>
-              )}
-              {filterDiff && (
-                <span className={cn('flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full', DIFFICULTY_COLORS[filterDiff])}>
-                  {DIFFICULTY_LABELS[filterDiff]}<button onClick={() => setFilterDiff('')}><X size={10} /></button>
+              ))}
+              {filterDiffs.map(d => (
+                <span key={`d-${d}`} className={cn('flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full', DIFFICULTY_COLORS[d])}>
+                  {DIFFICULTY_LABELS[d]}
+                  <button onClick={() => toggleFilter(filterDiffs, d, setFilterDiffs)}><X size={9} /></button>
                 </span>
-              )}
-              {filterTopic && (
-                <span className="flex items-center gap-1.5 text-xs bg-bg-hover text-text-muted px-2.5 py-1 rounded-full">
-                  {filterTopic}<button onClick={() => setFilterTopic('')}><X size={10} /></button>
+              ))}
+              {filterTypes.map(t => (
+                <span key={`t-${t}`} className="flex items-center gap-1.5 text-[10px] bg-accent/10 text-accent px-2 py-1 rounded-full">
+                  {TYPE_LABELS[t]}
+                  <button onClick={() => toggleFilter(filterTypes, t, setFilterTypes)}><X size={9} /></button>
                 </span>
+              ))}
+              {filterChapters.map(ch => (
+                <span key={`ch-${ch}`} className="flex items-center gap-1.5 text-[10px] bg-bg-hover text-text-muted px-2 py-1 rounded-full max-w-[180px]">
+                  <span className="truncate">{ch}</span>
+                  <button onClick={() => toggleFilter(filterChapters, ch, setFilterChapters)} className="flex-shrink-0"><X size={9} /></button>
+                </span>
+              ))}
+              {filterTopics.map(tp => (
+                <span key={`tp-${tp}`} className="flex items-center gap-1.5 text-[10px] bg-bg-hover text-text-muted px-2 py-1 rounded-full">
+                  {tp}
+                  <button onClick={() => toggleFilter(filterTopics, tp, setFilterTopics)}><X size={9} /></button>
+                </span>
+              ))}
+              <button onClick={clearAllFilters} className="flex items-center gap-1 text-[10px] text-text-dim hover:text-red-400 transition-colors px-2 py-1">
+                <X size={10} /> Xóa hết
+              </button>
+            </div>
+          )}
+
+          {/* Bulk action bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 bg-bg-card border border-bg-border rounded-xl px-4 py-2.5 animate-slide-up">
+              <span className="text-xs font-medium text-accent">{selectedIds.size} đã chọn</span>
+              <div className="w-px h-5 bg-bg-border" />
+              {hasOwnedSelection && (
+                <>
+                  <button
+                    onClick={() => handleBulkVisibility(true)}
+                    disabled={bulkAction}
+                    className="flex items-center gap-1.5 text-xs text-green-400 hover:bg-green-400/10 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    {bulkAction ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+                    Công khai
+                  </button>
+                  <button
+                    onClick={() => handleBulkVisibility(false)}
+                    disabled={bulkAction}
+                    className="flex items-center gap-1.5 text-xs text-yellow-400 hover:bg-yellow-400/10 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    {bulkAction ? <Loader2 size={12} className="animate-spin" /> : <EyeOff size={12} />}
+                    Riêng tư
+                  </button>
+                </>
               )}
+              <div className="flex-1" />
+              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-text-dim hover:text-text transition-colors">
+                Bỏ chọn
+              </button>
             </div>
           )}
         </div>
@@ -617,7 +842,6 @@ export default function BankPage() {
         {/* Question List */}
         <div className="flex-1 overflow-auto px-6 pb-6 min-h-0">
           <div className="bg-bg-card border border-bg-border rounded-xl overflow-hidden">
-            {/* Table header */}
             <div className="px-4 py-2.5 border-b border-bg-border flex items-center gap-3 bg-bg-hover/20">
               <button onClick={() => setSelectedIds(allSelected ? new Set() : new Set(questions.map(q => q.id)))}
                 className="text-text-dim hover:text-accent transition-colors ml-1">
@@ -651,7 +875,7 @@ export default function BankPage() {
                 <div className="text-text-muted font-medium">Không tìm thấy câu hỏi</div>
                 <div className="text-text-dim text-sm mt-1">{hasActiveFilter ? 'Thử thay đổi bộ lọc' : 'Hãy upload đề thi để bắt đầu'}</div>
                 {hasActiveFilter && (
-                  <button onClick={() => { setFilterType(''); setFilterDiff(''); setFilterTopic(''); setSearch('') }} className="btn-ghost text-sm mt-4">Xóa bộ lọc</button>
+                  <button onClick={clearAllFilters} className="btn-ghost text-sm mt-4">Xóa bộ lọc</button>
                 )}
               </div>
             ) : (
