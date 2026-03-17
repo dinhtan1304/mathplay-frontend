@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { parserApi, questionsApi, classesApi, assignmentsApi, getErrorMessage } from '@/lib/api'
 import type { Question, ClassRoom } from '@/types'
 import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn } from '@/lib/utils'
-import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X } from 'lucide-react'
+import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X, Sparkles } from 'lucide-react'
 import { MathText } from '@/lib/math'
+import GenerateSimilarModal from '@/components/GenerateSimilarModal'
 
 type Stage = 'idle' | 'uploading' | 'processing' | 'done' | 'error'
 
@@ -24,6 +25,7 @@ export default function UploadPage() {
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState('')
   const [error, setError] = useState('')
+  const [showSimilarModal, setShowSimilarModal] = useState(false)
   // Send to class dialog
   const [sendDialogOpen, setSendDialogOpen] = useState(false)
   const [sendTitle, setSendTitle] = useState('')
@@ -313,6 +315,13 @@ export default function UploadPage() {
                 Lưu lại ({selectedIds.size})
               </button>
               <button
+                onClick={() => setShowSimilarModal(true)}
+                disabled={selectedIds.size === 0}
+                className="btn-ghost text-sm py-1.5 flex items-center gap-1.5 text-accent hover:text-accent"
+              >
+                <Sparkles size={14} /> Sinh đề tương tự
+              </button>
+              <button
                 onClick={openSendDialog}
                 className="btn-primary text-sm py-1.5 flex items-center gap-1.5"
               >
@@ -443,6 +452,15 @@ export default function UploadPage() {
             Thử lại
           </button>
         </div>
+      )}
+
+      {/* Generate similar modal */}
+      {showSimilarModal && (
+        <GenerateSimilarModal
+          selectedIds={Array.from(selectedIds)}
+          onClose={() => setShowSimilarModal(false)}
+          onSaved={() => setShowSimilarModal(false)}
+        />
       )}
 
       {/* Send to class dialog */}
