@@ -71,7 +71,7 @@ html, body {
   }
 
   .nav-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-muted
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-muted
            hover:text-text hover:bg-bg-hover transition-all duration-150 text-sm font-medium;
   }
 
