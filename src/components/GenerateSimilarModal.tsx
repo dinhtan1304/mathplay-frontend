@@ -164,7 +164,18 @@ export default function GenerateSimilarModal({
     if (!generated.length || !sendClassId) return
     setSending(true)
     try {
-      const { exam_id } = await generatorApi.saveAsExam(sendTitle.trim() || 'Đề luyện tập', generated)
+      const sanitized = generated.map(q => ({
+        ...q,
+        question: q.question || '',
+        type: q.type || 'TN',
+        topic: q.topic || q.chapter || '',
+        difficulty: q.difficulty || 'TH',
+        chapter: q.chapter || '',
+        lesson_title: q.lesson_title || '',
+        answer: q.answer || '',
+        solution_steps: (q.solution_steps || []).map(s => String(s)),
+      }))
+      const { exam_id } = await generatorApi.saveAsExam(sendTitle.trim() || 'Đề luyện tập', sanitized)
       await assignmentsApi.create({ class_id: sendClassId, exam_id, title: sendTitle.trim() || 'Đề luyện tập' })
       setSentMsg('✓ Đã gửi vào lớp thành công!')
       setTimeout(() => setSendOpen(false), 1500)
