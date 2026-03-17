@@ -1,9 +1,9 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { parserApi, questionsApi, classesApi, assignmentsApi, getErrorMessage } from '@/lib/api'
-import type { Question, ClassRoom } from '@/types'
-import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn } from '@/lib/utils'
-import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X, Sparkles } from 'lucide-react'
+import type { Question, ClassRoom, Exam } from '@/types'
+import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn, formatDateTime } from '@/lib/utils'
+import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X, Sparkles, History, AlertTriangle, RefreshCw, BookOpen } from 'lucide-react'
 import { MathText } from '@/lib/math'
 import GenerateSimilarModal from '@/components/GenerateSimilarModal'
 
@@ -26,6 +26,10 @@ export default function UploadPage() {
   const [savedMsg, setSavedMsg] = useState('')
   const [error, setError] = useState('')
   const [showSimilarModal, setShowSimilarModal] = useState(false)
+  // History
+  const [history, setHistory] = useState<Exam[]>([])
+  const [dupWarning, setDupWarning] = useState<Exam | null>(null)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
   // Send to class dialog
   const [sendDialogOpen, setSendDialogOpen] = useState(false)
   const [sendTitle, setSendTitle] = useState('')
@@ -38,6 +42,11 @@ export default function UploadPage() {
   const fileInput = useRef<HTMLInputElement>(null)
   const unsubRef = useRef<(() => void) | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Load parse history on mount
+  useEffect(() => {
+    parserApi.listExams().then(res => setHistory(res.items)).catch(() => {})
+  }, [])
 
   // Cleanup on unmount
   useEffect(() => () => {
@@ -61,16 +70,15 @@ export default function UploadPage() {
       setQuestions(allQuestions)
       setSelectedIds(new Set(allQuestions.map((q: Question) => q.id)))
       setStage('done')
+      // Refresh history to include this newly completed exam
+      parserApi.listExams().then(res => setHistory(res.items)).catch(() => {})
     } catch (e) {
       setError(getErrorMessage(e))
       setStage('error')
     }
   }, [])
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.name.match(/\.(pdf|docx|doc)$/i)) {
-      setError('Chỉ hỗ trợ file PDF, DOCX, DOC'); return
-    }
+  const processFile = useCallback(async (file: File) => {
     // Reset state
     setError(''); setStage('uploading'); setUploadPct(0)
     setQuestions([]); setSelectedIds(new Set()); setSavedMsg(''); setJobId(null)
@@ -143,6 +151,22 @@ export default function UploadPage() {
       setError(getErrorMessage(e))
     }
   }, [loadQuestions])
+
+  const handleFile = useCallback((file: File) => {
+    if (!file.name.match(/\.(pdf|docx|doc)$/i)) {
+      setError('Chỉ hỗ trợ file PDF, DOCX, DOC'); return
+    }
+    // Check if a file with the same name was already analyzed successfully
+    const dup = history.find(
+      e => e.status === 'completed' && e.filename === file.name
+    )
+    if (dup) {
+      setPendingFile(file)
+      setDupWarning(dup)
+    } else {
+      processFile(file)
+    }
+  }, [history, processFile])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false)
@@ -234,6 +258,52 @@ export default function UploadPage() {
         </div>
       )}
 
+      {/* Parse history — shown when idle */}
+      {(stage === 'idle' || stage === 'error') && history.length > 0 && (
+        <div className="card animate-fade-in">
+          <div className="px-4 py-3 border-b border-bg-border flex items-center gap-2">
+            <History size={15} className="text-text-dim" />
+            <span className="text-sm font-semibold text-text">Lịch sử phân tích</span>
+            <span className="ml-auto text-xs text-text-dim">{history.length} file</span>
+          </div>
+          <div className="divide-y divide-bg-border">
+            {history.slice(0, 8).map(exam => (
+              <div key={exam.id} className="flex items-center gap-3 px-4 py-3 hover:bg-bg-hover/40 transition-colors">
+                <div className={cn(
+                  'w-2 h-2 rounded-full shrink-0',
+                  exam.status === 'completed' ? 'bg-green-400' :
+                  exam.status === 'failed' ? 'bg-red-400' :
+                  exam.status === 'processing' ? 'bg-accent animate-pulse' : 'bg-text-dim'
+                )} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-text truncate">{exam.filename}</div>
+                  <div className="text-xs text-text-dim mt-0.5">
+                    {formatDateTime(exam.created_at)}
+                    {exam.status === 'completed' && exam.question_count != null && (
+                      <span className="ml-2 text-green-400">{exam.question_count} câu</span>
+                    )}
+                    {exam.status === 'failed' && (
+                      <span className="ml-2 text-red-400">Thất bại</span>
+                    )}
+                    {exam.status === 'processing' && (
+                      <span className="ml-2 text-accent">Đang xử lý...</span>
+                    )}
+                  </div>
+                </div>
+                {exam.status === 'completed' && (
+                  <button
+                    onClick={() => { loadQuestions(exam.id); setJobId(exam.id) }}
+                    className="text-xs text-accent hover:underline shrink-0"
+                  >
+                    Xem lại
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Upload progress */}
       {stage === 'uploading' && (
         <div className="card p-6 animate-slide-up">
@@ -300,6 +370,12 @@ export default function UploadPage() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {savedMsg && <span className="text-sm text-green-400">{savedMsg}</span>}
+              <button
+                onClick={() => { setStage('idle'); setQuestions([]); setJobId(null); setSavedMsg(''); setError('') }}
+                className="btn-ghost text-sm py-1.5 flex items-center gap-1.5 text-text-muted"
+              >
+                <X size={14} /> Đóng
+              </button>
               <button
                 onClick={() => setSelectedIds(new Set(questions.map(q => q.id)))}
                 className="btn-ghost text-sm py-1.5"
@@ -451,6 +527,50 @@ export default function UploadPage() {
           >
             Thử lại
           </button>
+        </div>
+      )}
+
+      {/* Duplicate file warning */}
+      {dupWarning && pendingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-bg-card border border-bg-border rounded-2xl w-full max-w-md shadow-2xl animate-slide-up">
+            <div className="px-5 py-4 border-b border-bg-border flex items-center gap-2">
+              <AlertTriangle size={16} className="text-warning" />
+              <h4 className="font-semibold text-text text-sm">File đã được phân tích</h4>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-text-muted">
+                File <span className="text-text font-medium">"{dupWarning.filename}"</span> đã được phân tích vào{' '}
+                <span className="text-text">{formatDateTime(dupWarning.created_at)}</span>,
+                trích xuất được <span className="text-accent font-medium">{dupWarning.question_count ?? '?'} câu hỏi</span>.
+              </p>
+              <p className="text-xs text-text-dim">Bạn có muốn phân tích lại hay dùng kết quả cũ?</p>
+            </div>
+            <div className="px-5 py-4 border-t border-bg-border flex gap-2 justify-end">
+              <button onClick={() => { setDupWarning(null); setPendingFile(null) }} className="btn-ghost text-sm">Hủy</button>
+              <button
+                onClick={() => {
+                  const f = pendingFile
+                  setDupWarning(null); setPendingFile(null)
+                  loadQuestions(dupWarning.id)
+                  setJobId(dupWarning.id)
+                }}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm border border-bg-border rounded-xl text-text-muted hover:text-text transition-colors"
+              >
+                <BookOpen size={14} /> Dùng kết quả cũ
+              </button>
+              <button
+                onClick={() => {
+                  const f = pendingFile!
+                  setDupWarning(null); setPendingFile(null)
+                  processFile(f)
+                }}
+                className="btn-primary text-sm flex items-center gap-1.5"
+              >
+                <RefreshCw size={14} /> Phân tích lại
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

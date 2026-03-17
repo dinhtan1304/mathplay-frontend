@@ -1,7 +1,7 @@
 'use client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { questionsApi, bankExportApi, curriculumApi, authApi } from '@/lib/api'
-import type { Question, QuestionFilters, QuestionUpdate, CurriculumTree, CurriculumChapter } from '@/types'
+import { questionsApi, bankExportApi, curriculumApi, authApi, parserApi, getErrorMessage } from '@/lib/api'
+import type { Question, QuestionFilters, QuestionUpdate, CurriculumTree, CurriculumChapter, Exam } from '@/types'
 import GenerateSimilarModal from '@/components/GenerateSimilarModal'
 import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn, formatDateTime } from '@/lib/utils'
 import { MathText } from '@/lib/math'
@@ -9,8 +9,10 @@ import {
   Search, Download, Pencil, Trash2, X, ChevronLeft, ChevronRight,
   Check, Loader2, BookOpen, ChevronDown, FileText, FileCode,
   SlidersHorizontal, CheckSquare, Square, Globe, Lock, User,
-  Eye, EyeOff, Filter, Flag, AlertTriangle, Sparkles,
+  Eye, EyeOff, Filter, Flag, AlertTriangle, Sparkles, FlaskConical,
+  ArrowUpDown, ScanSearch, ArrowUp, ArrowDown,
 } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
 
 const DIFF_OPTIONS = ['NB', 'TH', 'VD', 'VDC'] as const
 const TYPE_OPTIONS = ['TN', 'TL'] as const
@@ -186,6 +188,11 @@ function EditModal({ q, onSave, onClose }: {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [curriculum, setCurriculum] = useState<CurriculumTree | null>(null)
+  // AI solve
+  const [solving, setSolving] = useState(false)
+  const [solveError, setSolveError] = useState<string | null>(null)
+  const [aiResult, setAiResult] = useState<{ answer: string; solution_steps: string[] } | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   useEffect(() => {
     curriculumApi.getTree().then(setCurriculum).catch(() => { })
@@ -207,6 +214,41 @@ function EditModal({ q, onSave, onClose }: {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setSaveError(msg || 'Lưu thất bại.')
     } finally { setSaving(false) }
+  }
+
+  const handleSolve = async () => {
+    setSolving(true); setSolveError(null); setAiResult(null)
+    try {
+      const result = await questionsApi.solve(q.id)
+      const hasExisting = form.answer?.trim() || form.solution_steps?.toString().trim()
+      if (hasExisting) {
+        setAiResult(result)
+        setConfirmOpen(true)
+      } else {
+        // No existing data — auto-fill immediately
+        setForm(f => ({
+          ...f,
+          answer: result.answer,
+          solution_steps: result.solution_steps.join('\n'),
+        }))
+        setSolveError(null)
+      }
+    } catch (err: unknown) {
+      setSolveError(getErrorMessage(err))
+    } finally {
+      setSolving(false)
+    }
+  }
+
+  const applyAiResult = () => {
+    if (!aiResult) return
+    setForm(f => ({
+      ...f,
+      answer: aiResult.answer,
+      solution_steps: aiResult.solution_steps.join('\n'),
+    }))
+    setConfirmOpen(false)
+    setAiResult(null)
   }
 
   return (
@@ -288,9 +330,25 @@ function EditModal({ q, onSave, onClose }: {
             <textarea value={form.answer || ''} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))} className="input resize-none h-20 font-mono text-sm" placeholder="Ví dụ: **A.** $x = 2$ hoặc nhiều dòng..." />
           </div>
           <div>
-            <label className="text-xs font-medium text-text-muted mb-2 block uppercase tracking-wide">
-              Hướng dẫn giải <span className="normal-case text-text-dim font-normal">(mỗi bước 1 dòng, hỗ trợ markdown &amp; LaTeX)</span>
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-text-muted uppercase tracking-wide">
+                Hướng dẫn giải <span className="normal-case text-text-dim font-normal">(mỗi bước 1 dòng, hỗ trợ markdown &amp; LaTeX)</span>
+              </label>
+              <button
+                type="button"
+                onClick={handleSolve}
+                disabled={solving || !form.question_text?.trim()}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg border border-accent/40 text-accent hover:bg-accent/10 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {solving
+                  ? <><Loader2 size={11} className="animate-spin" /> Đang giải...</>
+                  : <><FlaskConical size={11} /> Kiểm tra lời giải AI</>
+                }
+              </button>
+            </div>
+            {solveError && (
+              <p className="text-xs text-red-400 bg-red-400/10 px-3 py-1.5 rounded-lg mb-2">{solveError}</p>
+            )}
             <textarea value={(Array.isArray(form.solution_steps) ? form.solution_steps.join('\n') : form.solution_steps || '')} onChange={e => setForm(f => ({ ...f, solution_steps: e.target.value }))} className="input resize-none h-28 font-mono text-sm" />
           </div>
           <div>
@@ -319,6 +377,44 @@ function EditModal({ q, onSave, onClose }: {
           </div>
         </div>
       </div>
+
+      {/* AI solve confirm dialog */}
+      {confirmOpen && aiResult && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={() => setConfirmOpen(false)}>
+          <div className="bg-bg-card border border-bg-border rounded-2xl w-full max-w-lg shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-bg-border flex items-center gap-2">
+              <FlaskConical size={16} className="text-accent" />
+              <h4 className="font-semibold text-text text-sm">AI đã giải xong</h4>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-text-muted">Câu hỏi này đã có đáp án / hướng dẫn. Bạn có muốn thay thế bằng kết quả của AI không?</p>
+              <div className="bg-bg-hover rounded-xl p-4 space-y-2 text-sm">
+                <div>
+                  <span className="text-xs font-semibold text-text-dim uppercase tracking-wide">Đáp án AI</span>
+                  <p className="text-green-400 mt-1 font-mono text-xs">{aiResult.answer}</p>
+                </div>
+                <div>
+                  <span className="text-xs font-semibold text-text-dim uppercase tracking-wide">Hướng dẫn giải ({aiResult.solution_steps.length} bước)</span>
+                  <ol className="mt-1 space-y-0.5">
+                    {aiResult.solution_steps.slice(0, 4).map((s, i) => (
+                      <li key={i} className="text-xs text-text-muted font-mono truncate">{s}</li>
+                    ))}
+                    {aiResult.solution_steps.length > 4 && (
+                      <li className="text-xs text-text-dim">...và {aiResult.solution_steps.length - 4} bước nữa</li>
+                    )}
+                  </ol>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-bg-border flex gap-2 justify-end">
+              <button onClick={() => setConfirmOpen(false)} className="btn-ghost text-sm">Giữ nguyên</button>
+              <button onClick={applyAiResult} className="btn-primary text-sm flex items-center gap-2">
+                <Check size={14} /> Cập nhật từ AI
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -565,6 +661,13 @@ export default function BankPage() {
   const [myOnly, setMyOnly] = useState(false)
   const [filterVisibility, setFilterVisibility] = useState<'all' | 'public' | 'private'>('all')
 
+  // Sort state
+  const [sortBy, setSortBy] = useState<'created_at' | 'difficulty' | 'question_type'>('created_at')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  // Filter by exam source
+  const [filterExamId, setFilterExamId] = useState<number | undefined>(undefined)
+  const [exams, setExams] = useState<Exam[]>([])
+
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [editingQ, setEditingQ] = useState<Question | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
@@ -574,13 +677,31 @@ export default function BankPage() {
   const [exporting, setExporting] = useState(false)
   const [bulkAction, setBulkAction] = useState(false)
   const [showFilterSidebar, setShowFilterSidebar] = useState(true)
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false)
+  // Duplicate detection
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
+  const [duplicateGroups, setDuplicateGroups] = useState<Array<{
+    questions: Array<{ id: number; question_text: string; question_type: string; difficulty?: string; answer?: string; created_at: string }>
+    max_score: number
+  }>>([])
+  const [dupLoading, setDupLoading] = useState(false)
+  const [dupError, setDupError] = useState('')
 
-  // Fetch initial data
+  const searchParams = useSearchParams()
+
+  // One-time init: auth, filters, curriculum, exams list
   useEffect(() => {
     authApi.me().then(u => setCurrentUserId(u.id)).catch(() => { })
     questionsApi.getFilters().then(setFilters).catch(() => { })
     curriculumApi.getTree().then(setCurriculum).catch(() => { })
+    parserApi.listExams(1, 100).then(r => setExams(r.items)).catch(() => { })
   }, [])
+
+  // Read exam_id from query param on mount only
+  useEffect(() => {
+    const examIdParam = searchParams.get('exam_id')
+    if (examIdParam) setFilterExamId(Number(examIdParam))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 400)
@@ -626,18 +747,21 @@ export default function BankPage() {
         grade: filterGrades.length > 0 ? filterGrades.join(',') : undefined,
         chapter: filterChapters.length > 0 ? filterChapters.join(',') : undefined,
         keyword: debouncedSearch || undefined,
+        exam_id: filterExamId,
         my_only: myOnly || undefined,
         visibility: filterVisibility !== 'all' ? filterVisibility : undefined,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       })
       setQuestions(res.items); setTotal(res.total)
     } catch (err) {
       console.error('Failed to load questions:', err)
       setQuestions([]); setTotal(0)
     } finally { setLoading(false) }
-  }, [page, filterTypes, filterDiffs, filterGrades, filterChapters, debouncedSearch, myOnly, filterVisibility])
+  }, [page, filterTypes, filterDiffs, filterGrades, filterChapters, debouncedSearch, myOnly, filterVisibility, filterExamId, sortBy, sortOrder])
 
   useEffect(() => { loadQuestions() }, [loadQuestions])
-  useEffect(() => { setPage(1) }, [filterTypes, filterDiffs, filterGrades, filterChapters, debouncedSearch, myOnly, filterVisibility])
+  useEffect(() => { setPage(1) }, [filterTypes, filterDiffs, filterGrades, filterChapters, debouncedSearch, myOnly, filterVisibility, filterExamId, sortBy, sortOrder])
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
   const handleDelete = async (id: number) => {
@@ -655,6 +779,23 @@ export default function BankPage() {
     const updated = await questionsApi.update(editingQ.id, data)
     setQuestions(qs => qs.map(q => q.id === updated.id ? updated : q))
     setEditingQ(null)
+  }
+
+  const handleBulkDelete = async () => {
+    setConfirmBulkDelete(false)
+    setBulkAction(true)
+    try {
+      const ownedIds = questions
+        .filter(q => selectedIds.has(q.id) && q.user_id === currentUserId)
+        .map(q => q.id)
+      if (ownedIds.length === 0) return
+      await questionsApi.bulkDelete(ownedIds)
+      setQuestions(qs => qs.filter(q => !ownedIds.includes(q.id)))
+      setTotal(t => t - ownedIds.length)
+      setSelectedIds(new Set())
+    } catch (err) {
+      console.error('Bulk delete failed:', err)
+    } finally { setBulkAction(false) }
   }
 
   const handleBulkVisibility = async (isPublic: boolean) => {
@@ -714,17 +855,46 @@ export default function BankPage() {
     setter(arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val])
   }
 
-  const activeFilterCount = filterTypes.length + filterDiffs.length + filterGrades.length + filterChapters.length + (filterVisibility !== 'all' ? 1 : 0)
+  const activeFilterCount = filterTypes.length + filterDiffs.length + filterGrades.length + filterChapters.length
+    + (filterVisibility !== 'all' ? 1 : 0) + (filterExamId ? 1 : 0)
   const hasActiveFilter = activeFilterCount > 0 || !!search
   const clearAllFilters = () => {
     setFilterTypes([]); setFilterDiffs([])
     setFilterGrades([]); setFilterChapters([]); setSearch('')
-    setFilterVisibility('all')
+    setFilterVisibility('all'); setFilterExamId(undefined)
+  }
+
+  const handleFindDuplicates = async () => {
+    setDupLoading(true); setDupError(''); setDuplicateGroups([])
+    try {
+      const res = await questionsApi.findDuplicates(0.92)
+      setDuplicateGroups(res.groups)
+      setShowDuplicateModal(true)
+    } catch (e) { setDupError(getErrorMessage(e)) } finally { setDupLoading(false) }
+  }
+
+  const handleDeleteDuplicate = async (id: number, groupIdx: number) => {
+    try {
+      await questionsApi.delete(id)
+      setDuplicateGroups(prev => {
+        const updated = [...prev]
+        updated[groupIdx] = {
+          ...updated[groupIdx],
+          questions: updated[groupIdx].questions.filter(q => q.id !== id),
+        }
+        return updated.filter(g => g.questions.length >= 2)
+      })
+      setQuestions(qs => qs.filter(q => q.id !== id))
+      setTotal(t => t - 1)
+    } catch (e) { setDupError(getErrorMessage(e)) }
   }
 
   const allSelected = selectedIds.size === questions.length && questions.length > 0
   const totalPages = Math.ceil(total / pageSize)
-  const selectedOwnedIds = questions.filter(q => selectedIds.has(q.id) && q.user_id === currentUserId).map(q => q.id)
+  const selectedOwnedIds = useMemo(
+    () => questions.filter(q => selectedIds.has(q.id) && q.user_id === currentUserId).map(q => q.id),
+    [questions, selectedIds, currentUserId]
+  )
   const hasOwnedSelection = selectedOwnedIds.length > 0
 
   return (
@@ -732,6 +902,74 @@ export default function BankPage() {
       {editingQ && <EditModal q={editingQ} onSave={handleUpdate} onClose={() => setEditingQ(null)} />}
       {deletingId !== null && <DeleteConfirm onConfirm={() => handleDelete(deletingId)} onCancel={() => setDeletingId(null)} />}
       {reportingId !== null && <ReportModal questionId={reportingId} onClose={() => setReportingId(null)} />}
+
+      {/* ─── Duplicate Detection Modal ────────────────────────────────────── */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-bg-card border border-bg-border rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="px-5 py-4 border-b border-bg-border flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-semibold text-text flex items-center gap-2"><ScanSearch size={15} className="text-accent" /> Kiểm tra câu trùng lặp</h3>
+                <p className="text-xs text-text-dim mt-0.5">{duplicateGroups.length} nhóm câu tương đồng ≥ 92%</p>
+              </div>
+              <button onClick={() => setShowDuplicateModal(false)} className="w-7 h-7 rounded-lg hover:bg-bg-hover flex items-center justify-center text-text-dim">
+                <X size={14} />
+              </button>
+            </div>
+            {dupError && (
+              <div className="px-4 py-2 bg-red-500/10 text-red-400 text-xs border-b border-bg-border flex items-center gap-2">
+                <AlertTriangle size={12} /> {dupError}
+                <button onClick={() => setDupError('')} className="ml-auto"><X size={11} /></button>
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+              {duplicateGroups.length === 0 ? (
+                <div className="py-16 text-center">
+                  <Check size={32} className="text-green-400 mx-auto mb-3" />
+                  <p className="text-text-muted font-medium">Không phát hiện câu trùng lặp</p>
+                  <p className="text-text-dim text-sm mt-1">Ngân hàng câu hỏi của bạn sạch sẽ!</p>
+                </div>
+              ) : duplicateGroups.map((group, gi) => (
+                <div key={gi} className="border border-bg-border rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-bg-hover/30 flex items-center justify-between">
+                    <span className="text-xs font-medium text-text-muted">Nhóm {gi + 1} · Độ tương đồng {(group.max_score * 100).toFixed(0)}%</span>
+                    <div className="w-16 h-1.5 rounded-full bg-bg-border overflow-hidden">
+                      <div className="h-full rounded-full bg-orange-400" style={{ width: `${group.max_score * 100}%` }} />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-bg-border">
+                    {group.questions.map((q) => (
+                      <div key={q.id} className="p-4 flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="text-[10px] text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">#{q.id}</span>
+                            {q.question_type && <span className="text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded">{q.question_type}</span>}
+                            {q.difficulty && (
+                              <span className={cn('text-[10px] px-1.5 py-0.5 rounded', DIFFICULTY_COLORS[q.difficulty])}>
+                                {DIFFICULTY_LABELS[q.difficulty]}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-text line-clamp-3"><MathText text={q.question_text} /></p>
+                          {q.answer && <p className="text-xs text-text-dim mt-1">Đáp án: <span className="text-green-400">{q.answer}</span></p>}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteDuplicate(q.id, gi)}
+                          className="flex-shrink-0 flex items-center gap-1 text-[10px] text-red-400 hover:bg-red-400/10 px-2.5 py-1.5 rounded-lg transition-colors border border-red-400/20"
+                          title="Xóa câu này"
+                        >
+                          <Trash2 size={11} /> Xóa
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showGenerateSimilar && (
         <GenerateSimilarModal
           selectedIds={Array.from(selectedIds)}
@@ -831,6 +1069,26 @@ export default function BankPage() {
               }
             />
 
+            {/* Filter by exam source */}
+            {exams.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-text-dim uppercase tracking-wider mb-1.5">Nguồn đề</p>
+                <select
+                  value={filterExamId ?? ''}
+                  onChange={e => setFilterExamId(e.target.value ? Number(e.target.value) : undefined)}
+                  className={cn(
+                    'w-full px-2.5 py-2 rounded-lg text-xs border transition-colors bg-transparent focus:outline-none',
+                    filterExamId ? 'border-accent/50 text-accent bg-accent/5' : 'border-bg-border text-text-muted hover:border-text-dim'
+                  )}
+                >
+                  <option value="">Tất cả nguồn</option>
+                  {exams.filter(e => e.status === 'completed').map(e => (
+                    <option key={e.id} value={e.id}>{e.filename}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* My only */}
             <button
               onClick={() => setMyOnly(m => !m)}
@@ -865,6 +1123,37 @@ export default function BankPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleFindDuplicates}
+              disabled={dupLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border border-bg-border text-text-muted hover:text-text hover:bg-bg-hover transition-colors"
+              title="Kiểm tra câu trùng lặp"
+            >
+              {dupLoading ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
+              <span className="hidden sm:inline">Trùng lặp</span>
+            </button>
+            {dupError && <span className="text-xs text-red-400">{dupError}</span>}
+
+            {/* Sort controls */}
+            <div className="flex items-center gap-1 border border-bg-border rounded-lg overflow-hidden">
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                className="bg-transparent text-xs text-text-muted px-2 py-2 focus:outline-none hover:text-text cursor-pointer"
+              >
+                <option value="created_at">Ngày tạo</option>
+                <option value="difficulty">Độ khó</option>
+                <option value="question_type">Loại câu</option>
+              </select>
+              <button
+                onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+                className="px-2 py-2 text-text-dim hover:text-accent transition-colors border-l border-bg-border"
+                title={sortOrder === 'asc' ? 'Tăng dần' : 'Giảm dần'}
+              >
+                {sortOrder === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+              </button>
+            </div>
+
             <ExportDropdown onExport={exportSelected} loading={exporting} />
           </div>
         </div>
@@ -925,6 +1214,13 @@ export default function BankPage() {
                   <button onClick={() => toggleFilter(filterChapters, ch, setFilterChapters)} className="flex-shrink-0"><X size={9} /></button>
                 </span>
               ))}
+              {filterExamId && (
+                <span className="flex items-center gap-1.5 text-[10px] bg-accent/10 text-accent px-2 py-1 rounded-full max-w-[180px]">
+                  <FileText size={9} />
+                  <span className="truncate">{exams.find(e => e.id === filterExamId)?.filename ?? `Đề #${filterExamId}`}</span>
+                  <button onClick={() => setFilterExamId(undefined)} className="flex-shrink-0"><X size={9} /></button>
+                </span>
+              )}
               <button onClick={clearAllFilters} className="flex items-center gap-1 text-[10px] text-text-dim hover:text-red-400 transition-colors px-2 py-1">
                 <X size={10} /> Xóa hết
               </button>
@@ -962,8 +1258,37 @@ export default function BankPage() {
               >
                 <Sparkles size={12} /> Sinh tương tự
               </button>
+              {hasOwnedSelection && (
+                confirmBulkDelete ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-red-400 font-medium">Xóa {selectedOwnedIds.length} câu?</span>
+                    <button
+                      onClick={handleBulkDelete}
+                      disabled={bulkAction}
+                      className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 hover:bg-red-400/20 px-2.5 py-1.5 rounded-lg transition-colors font-medium"
+                    >
+                      {bulkAction ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                      Xác nhận
+                    </button>
+                    <button
+                      onClick={() => setConfirmBulkDelete(false)}
+                      className="text-xs text-text-dim hover:text-text px-2 py-1.5 rounded-lg"
+                    >
+                      Hủy
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={bulkAction}
+                    className="flex items-center gap-1.5 text-xs text-red-400 hover:bg-red-400/10 px-3 py-1.5 rounded-lg transition-colors font-medium"
+                  >
+                    <Trash2 size={12} /> Xóa đã chọn
+                  </button>
+                )
+              )}
               <div className="flex-1" />
-              <button onClick={() => setSelectedIds(new Set())} className="text-xs text-text-dim hover:text-text transition-colors">
+              <button onClick={() => { setSelectedIds(new Set()); setConfirmBulkDelete(false) }} className="text-xs text-text-dim hover:text-text transition-colors">
                 Bỏ chọn
               </button>
             </div>

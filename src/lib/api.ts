@@ -135,12 +135,18 @@ export const parserApi = {
   },
 
   // GET /parser/history
-  listExams: () =>
-    api.get<{ items: Exam[]; total: number; page: number; page_size: number }>('/parser/history').then(r => r.data),
+  listExams: (page = 1, pageSize = 20, search?: string) =>
+    api.get<{ items: Exam[]; total: number; page: number; page_size: number }>('/parser/history', {
+      params: { page, page_size: pageSize, ...(search ? { search } : {}) },
+    }).then(r => r.data),
 
   // DELETE /parser/{job_id}
   deleteExam: (jobId: number) =>
     api.delete(`/parser/${jobId}`),
+
+  // PATCH /parser/{job_id} — rename exam
+  renameExam: (jobId: number, name: string) =>
+    api.patch<Exam>(`/parser/${jobId}`, { name }).then(r => r.data),
 }
 
 // ─── Questions ───────────────────────────────────────────────────────────────
@@ -150,6 +156,8 @@ export const questionsApi = {
     type?: string; difficulty?: string
     grade?: number | string; chapter?: string; keyword?: string; exam_id?: number
     my_only?: boolean; visibility?: 'public' | 'private'
+    sort_by?: 'created_at' | 'difficulty' | 'question_type'
+    sort_order?: 'asc' | 'desc'
   }) => api.get<QuestionListResponse>('/questions', { params }).then(r => r.data),
 
   getFilters: () =>
@@ -178,6 +186,25 @@ export const questionsApi = {
 
   generateSimilar: (questionIds: number[], count: number) =>
     api.post<GeneratedQuestion[]>('/questions/generate-similar', { question_ids: questionIds, count }).then(r => r.data),
+
+  solve: (questionId: number) =>
+    api.post<{ answer: string; solution_steps: string[] }>(`/questions/${questionId}/solve`).then(r => r.data),
+
+  findDuplicates: (threshold = 0.92) =>
+    api.get<{
+      groups: Array<{
+        questions: Array<{
+          id: number; question_text: string; question_type: string
+          difficulty?: string; topic?: string; chapter?: string
+          grade?: number; answer?: string; created_at: string
+        }>
+        max_score: number
+      }>
+      total_groups: number
+    }>('/questions/duplicates', { params: { threshold } }).then(r => r.data),
+
+  bulkDelete: (questionIds: number[]) =>
+    api.post<{ detail: string; deleted: number }>('/questions/bulk-delete', { question_ids: questionIds }).then(r => r.data),
 }
 
 // ─── Generator ───────────────────────────────────────────────────────────────
