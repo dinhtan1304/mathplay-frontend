@@ -147,9 +147,9 @@ export const parserApi = {
 export const questionsApi = {
   list: (params: {
     page?: number; page_size?: number
-    type?: string; topic?: string; difficulty?: string
-    grade?: number; chapter?: string; keyword?: string; exam_id?: number
-    my_only?: boolean
+    type?: string; difficulty?: string
+    grade?: number | string; chapter?: string; keyword?: string; exam_id?: number
+    my_only?: boolean; visibility?: 'public' | 'private'
   }) => api.get<QuestionListResponse>('/questions', { params }).then(r => r.data),
 
   getFilters: () =>
@@ -168,10 +168,16 @@ export const questionsApi = {
     api.post<{ saved: number; skipped: number }>('/questions/bulk', { questions }).then(r => r.data),
 
   bulkVisibility: (questionIds: number[], isPublic: boolean) =>
-    api.patch<{ detail: string; updated: number; is_public: boolean }>('/questions/bulk-visibility', {
+    api.patch<{ detail: string; updated: number; skipped_no_answer: number; is_public: boolean }>('/questions/bulk-visibility', {
       question_ids: questionIds,
       is_public: isPublic,
     }).then(r => r.data),
+
+  report: (questionId: number, reason: string, detail?: string) =>
+    api.post<{ detail: string }>(`/questions/${questionId}/report`, { reason, detail }).then(r => r.data),
+
+  generateSimilar: (questionIds: number[], count: number) =>
+    api.post<GeneratedQuestion[]>('/questions/generate-similar', { question_ids: questionIds, count }).then(r => r.data),
 }
 
 // ─── Generator ───────────────────────────────────────────────────────────────

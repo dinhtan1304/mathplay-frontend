@@ -69,7 +69,6 @@ export interface QuestionListResponse {
 
 export interface QuestionFilters {
   types: string[]
-  topics: string[]
   difficulties: string[]
   grades: number[]
   chapters: string[]

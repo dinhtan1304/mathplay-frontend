@@ -40,7 +40,7 @@ export const DIFFICULTY_COLORS: Record<string, string> = {
 }
 
 export const TYPE_LABELS: Record<string, string> = {
-  TN: 'Trắc nghiệm', TL: 'Tự luận', DS: 'Đúng/Sai', GH: 'Ghép cặp',
+  TN: 'Trắc nghiệm', TL: 'Tự luận',
 }
 
 export const GAME_MODE_LABELS: Record<string, string> = {

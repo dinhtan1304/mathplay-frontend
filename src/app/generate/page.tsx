@@ -9,7 +9,7 @@ import type {
   GeneratorExportRequest, VerificationStats, QuestionType, Difficulty, ClassRoom,
 } from '@/types'
 import { DIFFICULTY_LABELS, cn } from '@/lib/utils'
-import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare, Send, X } from 'lucide-react'
+import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare, Send, X, Pencil, Check } from 'lucide-react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 
@@ -89,11 +89,62 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[10px] font-semibold text-text-dim uppercase tracking-wider mb-2">{children}</div>
 }
 
-function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
+function QuestionCard({ q, num, onEdit }: { q: GeneratedQuestion; num: number; onEdit?: (updated: GeneratedQuestion) => void }) {
   const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editQ, setEditQ] = useState(q)
   const color = DIFF_COLORS[q.difficulty] || '#6366f1'
+
+  const handleSave = () => { onEdit?.(editQ); setEditing(false) }
+  const handleCancel = () => { setEditQ(q); setEditing(false) }
+
+  if (editing) {
+    return (
+      <div className="p-4 border-b border-bg-border last:border-0 bg-bg-hover/30" style={{ borderLeft: `3px solid ${color}` }}>
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-text-dim w-10 shrink-0">Câu {num}</span>
+            <div className="flex gap-1.5 ml-auto">
+              <select value={editQ.difficulty} onChange={e => setEditQ(q => ({ ...q, difficulty: e.target.value }))}
+                className="input text-xs py-1 px-2 h-auto">
+                {(['NB','TH','VD','VDC'] as const).map(d => <option key={d} value={d}>{DIFFICULTY_LABELS[d]}</option>)}
+              </select>
+              <select value={editQ.type} onChange={e => setEditQ(q => ({ ...q, type: e.target.value }))}
+                className="input text-xs py-1 px-2 h-auto">
+                <option value="TN">Trắc nghiệm</option>
+                <option value="TL">Tự luận</option>
+              </select>
+              <button onClick={handleSave} className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-accent text-white text-xs font-medium">
+                <Check size={11} /> Lưu
+              </button>
+              <button onClick={handleCancel} className="px-2.5 py-1 rounded-lg bg-bg-hover text-text-muted text-xs">Hủy</button>
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-text-muted mb-1">Nội dung câu hỏi</div>
+            <textarea value={editQ.question} rows={4}
+              onChange={e => setEditQ(q => ({ ...q, question: e.target.value }))}
+              className="input text-sm resize-y w-full font-mono" />
+          </div>
+          <div>
+            <div className="text-xs text-text-muted mb-1">Đáp án</div>
+            <input value={editQ.answer}
+              onChange={e => setEditQ(q => ({ ...q, answer: e.target.value }))}
+              className="input text-sm w-full" />
+          </div>
+          <div>
+            <div className="text-xs text-text-muted mb-1">Lời giải (mỗi bước một dòng)</div>
+            <textarea value={editQ.solution_steps.join('\n')} rows={3}
+              onChange={e => setEditQ(q => ({ ...q, solution_steps: e.target.value.split('\n') }))}
+              className="input text-sm resize-y w-full font-mono" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="p-4 border-b border-bg-border last:border-0" style={{ borderLeft: `3px solid ${color}` }}>
+    <div className="p-4 border-b border-bg-border last:border-0 group" style={{ borderLeft: `3px solid ${color}` }}>
       <div className="flex items-start gap-3">
         <span className="text-xs font-mono text-text-dim mt-0.5 w-10 flex-shrink-0">Câu {num}</span>
         <div className="flex-1 min-w-0">
@@ -155,6 +206,13 @@ function QuestionCard({ q, num }: { q: GeneratedQuestion; num: number }) {
             </div>
           )}
         </div>
+        {onEdit && (
+          <button onClick={() => setEditing(true)}
+            className="shrink-0 opacity-0 group-hover:opacity-100 text-text-dim hover:text-accent transition-all mt-0.5"
+            title="Chỉnh sửa câu hỏi">
+            <Pencil size={13} />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -221,7 +279,7 @@ export default function GeneratePage() {
 
   useEffect(() => {
     curriculumApi.getTree().then(setCurriculumTree).catch(() => {})
-    questionsApi.getFilters().then(f => setTopicOptions(f.topics || [])).catch(() => {})
+    questionsApi.getFilters().then(() => setTopicOptions([])).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -338,7 +396,6 @@ export default function GeneratePage() {
         chapter: q.chapter || '',
         lesson_title: q.lesson_title || '',
         answer: q.answer || '',
-        // Backend QuestionCreateItem expects List[str] or JSON string
         solution_steps: Array.isArray(q.solution_steps) ? q.solution_steps : [],
       }))
       const res = await questionsApi.bulkCreate(questions)
@@ -436,6 +493,13 @@ export default function GeneratePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewAnswers, previewSolutions, result, mode, topic])
 
+  const handleEditQuestion = (index: number, updated: GeneratedQuestion) => {
+    if (!result) return
+    const questions = [...result.questions]
+    questions[index] = updated
+    setResult({ ...result, questions })
+  }
+
   // Group by difficulty for exam mode display
   const grouped = result
     ? (['NB','TH','VD','VDC'] as const).reduce<Record<string, GeneratedQuestion[]>>((acc, d) => {
@@ -446,7 +510,9 @@ export default function GeneratePage() {
     : {}
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5 animate-fade-in">
+    <div className="p-5 flex flex-col gap-4 animate-fade-in">
+
+      {/* ── Header ── */}
       <div>
         <h1 className="text-2xl font-bold text-text">Sinh đề AI</h1>
         <p className="text-text-muted text-sm mt-1">
@@ -454,36 +520,64 @@ export default function GeneratePage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[340px_1fr] gap-5">
+      {/* ── Config: 4 columns ── */}
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
 
-        {/* ── Config ── */}
-        <div className="space-y-4">
-
-          {/* Mode toggle */}
-          <div className="card p-4">
+          {/* ─ Col 1: Chế độ ─ */}
+          <div className="card p-4 space-y-3">
             <SectionLabel>Chế độ</SectionLabel>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { v: 'exam', l: 'Sinh đề' },
+            <div className="flex flex-col gap-1.5">
+              {([
+                { v: 'exam',   l: 'Sinh đề' },
                 { v: 'single', l: 'Câu đơn' },
                 { v: 'prompt', l: 'Prompt tự do' },
-              ].map(o => (
-                <button key={o.v} onClick={() => setMode(o.v as any)}
+              ] as const).map(o => (
+                <button key={o.v} onClick={() => setMode(o.v)}
                   className={cn('py-2 rounded-lg text-sm font-medium transition-colors',
                     mode === o.v ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
                   {o.l}
                 </button>
               ))}
             </div>
+            {/* Count summary */}
+            {mode === 'exam' && (() => {
+              const p = EXAM_PRESETS[examPreset]
+              const tn = examPreset === 'custom' ? customTN : p.countTN
+              const tl = examPreset === 'custom' ? customTL : p.countTL
+              return (
+                <div className="rounded-lg bg-accent/10 py-2 text-center">
+                  <div className="text-2xl font-bold text-accent leading-none">{tn + tl}</div>
+                  <div className="text-[10px] text-text-muted mt-1">{tn} TN · {tl} TL</div>
+                </div>
+              )
+            })()}
+            {mode === 'single' && (
+              <div>
+                <div className="text-xs text-text-muted mb-1.5">Số câu muốn sinh</div>
+                <input type="number" min={1} max={50} value={singleCount}
+                  onChange={e => setSingleCount(Math.max(1, Math.min(50, Number(e.target.value))))}
+                  className="input text-sm text-center font-bold w-full" />
+                <input type="range" min={1} max={50} value={singleCount}
+                  onChange={e => setSingleCount(Number(e.target.value))}
+                  className="w-full accent-accent mt-2" />
+              </div>
+            )}
+            {mode === 'prompt' && (
+              <div>
+                <div className="text-xs text-text-muted mb-1.5">Số câu muốn sinh</div>
+                <input type="number" min={1} max={50} value={promptCount}
+                  onChange={e => setPromptCount(Math.max(1, Math.min(50, Number(e.target.value))))}
+                  className="input text-sm text-center font-bold w-full" />
+              </div>
+            )}
           </div>
 
-          {/* Curriculum cascade */}
+          {/* ─ Col 2: Chương trình học + Chủ đề ─ */}
           <div className="card p-4 space-y-3">
             <SectionLabel>Chương trình học</SectionLabel>
-
-            {/* Grade */}
             <div>
-              <div className="text-xs text-text-muted mb-2">Khối lớp</div>
+              <div className="text-xs text-text-muted mb-1.5">Khối lớp</div>
               <div className="flex flex-wrap gap-1.5">
                 {[6,7,8,9,10,11,12].map(g => (
                   <button key={g} onClick={() => handleGradeSelect(g)}
@@ -494,15 +588,13 @@ export default function GeneratePage() {
                 ))}
               </div>
             </div>
-
-            {/* Scope */}
             {grade && (
               <div>
-                <div className="text-xs text-text-muted mb-2">Phạm vi</div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="text-xs text-text-muted mb-1.5">Phạm vi</div>
+                <div className="flex flex-wrap gap-1">
                   {SCOPES.map(s => (
                     <button key={s.value} onClick={() => { setScope(s.value); setChapterNo(''); setLessons([]); setLessonId('') }}
-                      className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
+                      className={cn('px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
                         scope === s.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
                       {s.label}
                     </button>
@@ -510,8 +602,6 @@ export default function GeneratePage() {
                 </div>
               </div>
             )}
-
-            {/* Chapter */}
             {grade && scope === 'chapter' && chapters.length > 0 && (
               <div>
                 <div className="text-xs text-text-muted mb-1.5">Chương</div>
@@ -521,15 +611,13 @@ export default function GeneratePage() {
                     const short = ch.chapter.replace(/^Chương\s+/, 'Ch.').replace(/\.\s+/, ' – ')
                     return (
                       <option key={ch.chapter_no} value={ch.chapter_no}>
-                        {short}{ch.question_count > 0 ? ` (${ch.question_count} câu)` : ''}
+                        {short}{ch.question_count > 0 ? ` (${ch.question_count})` : ''}
                       </option>
                     )
                   })}
                 </select>
               </div>
             )}
-
-            {/* Lesson */}
             {chapterNo && lessons.length > 0 && (
               <div>
                 <div className="text-xs text-text-muted mb-1.5">Bài học</div>
@@ -537,128 +625,69 @@ export default function GeneratePage() {
                   <option value="">Tất cả bài trong chương</option>
                   {lessons.map(ls => (
                     <option key={ls.id} value={ls.id}>
-                      {ls.lesson_title}{ls.question_count > 0 ? ` (${ls.question_count} câu)` : ''}
+                      {ls.lesson_title}{ls.question_count > 0 ? ` (${ls.question_count})` : ''}
                     </option>
                   ))}
                 </select>
               </div>
             )}
-
-            {/* Bank info */}
             {grade !== null && bankCount !== null && (
-              <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-xs',
+              <div className={cn('flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs',
                 bankCount > 0 ? 'bg-green-400/10 text-green-400' : 'bg-bg-hover text-text-dim')}>
-                <Info size={12} />
-                {bankCount > 0
-                  ? `${bankCount} câu trong ngân hàng — AI sẽ tham khảo`
-                  : 'Chưa có câu trong ngân hàng — AI sinh từ đầu'}
+                <Info size={11} />
+                {bankCount > 0 ? `${bankCount} câu mẫu trong ngân hàng` : 'Chưa có câu — AI sinh từ đầu'}
               </div>
             )}
+            <div>
+              <div className="text-xs text-text-muted mb-1.5">Chủ đề / Ghi chú</div>
+              <input value={topic} onChange={e => setTopic(e.target.value)}
+                placeholder="VD: Hàm số bậc hai, Đạo hàm..."
+                className="input text-sm" />
+            </div>
           </div>
 
-          {/* Topic */}
+          {/* ─ Col 3: Cấu hình đề + Số lượng câu ─ */}
           <div className="card p-4 space-y-3">
-            <SectionLabel>Chủ đề</SectionLabel>
-            <input value={topic} onChange={e => setTopic(e.target.value)}
-              placeholder="VD: Hàm số bậc hai, Đạo hàm..."
-              className="input text-sm" />
-            {topicOptions.length > 0 && (
-              <select value="" onChange={e => { if (e.target.value) setTopic(e.target.value) }} className="input text-sm">
-                <option value="">Chọn từ ngân hàng...</option>
-                {topicOptions.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            )}
-          </div>
-
-          {/* Exam config */}
-          {mode === 'exam' && (
-            <div className="card p-4 space-y-3">
-              <SectionLabel>Cấu hình đề thi</SectionLabel>
-
-              {/* Exam type */}
-              <div>
-                <div className="text-xs text-text-muted mb-2">Loại đề</div>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(Object.entries(EXAM_PRESETS) as [ExamPresetKey, any][]).map(([key, p]) => (
-                    <button key={key} onClick={() => setExamPreset(key)}
-                      className={cn('py-1.5 rounded-lg text-[11px] font-medium text-center transition-colors',
-                        examPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
-                      {p.label}
-                    </button>
-                  ))}
+            {mode === 'exam' && (
+              <>
+                <SectionLabel>Cấu hình đề thi</SectionLabel>
+                <div>
+                  <div className="text-xs text-text-muted mb-1.5">Loại đề</div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(Object.entries(EXAM_PRESETS) as [ExamPresetKey, any][]).map(([key, p]) => (
+                      <button key={key} onClick={() => setExamPreset(key)}
+                        className={cn('py-1.5 rounded-lg text-[11px] font-medium text-center transition-colors',
+                          examPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-
-              {examPreset === 'custom' && (
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <div className="text-xs text-text-muted mb-1">Câu TN</div>
-                    <input type="number" min={0} max={100} value={customTN}
-                      onChange={e => setCustomTN(Number(e.target.value))} className="input text-sm" />
+                    <input type="number" min={0} max={100}
+                      value={examPreset === 'custom' ? customTN : EXAM_PRESETS[examPreset].countTN}
+                      readOnly={examPreset !== 'custom'}
+                      onChange={e => examPreset === 'custom' && setCustomTN(Number(e.target.value))}
+                      className={cn('input text-sm text-center font-semibold',
+                        examPreset !== 'custom' && 'opacity-60 cursor-default')} />
                   </div>
                   <div>
                     <div className="text-xs text-text-muted mb-1">Câu TL</div>
-                    <input type="number" min={0} max={20} value={customTL}
-                      onChange={e => setCustomTL(Number(e.target.value))} className="input text-sm" />
+                    <input type="number" min={0} max={20}
+                      value={examPreset === 'custom' ? customTL : EXAM_PRESETS[examPreset].countTL}
+                      readOnly={examPreset !== 'custom'}
+                      onChange={e => examPreset === 'custom' && setCustomTL(Number(e.target.value))}
+                      className={cn('input text-sm text-center font-semibold',
+                        examPreset !== 'custom' && 'opacity-60 cursor-default')} />
                   </div>
                 </div>
-              )}
-
-              {/* Diff preset */}
-              <div>
-                <div className="text-xs text-text-muted mb-2">Phân phối độ khó</div>
-                <div className="grid grid-cols-4 gap-1">
-                  {(Object.entries(DIFF_PRESETS) as [DiffPresetKey, any][]).map(([key, p]) => (
-                    <button key={key} onClick={() => setDiffPreset(key)}
-                      className={cn('py-1.5 rounded-lg text-[11px] font-medium transition-colors',
-                        diffPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-4 gap-1.5 mt-2">
-                  {(['NB','TH','VD','VDC'] as const).map(d => (
-                    <div key={d}>
-                      <div className="text-[10px] font-medium mb-1" style={{ color: DIFF_COLORS[d] }}>
-                        {DIFFICULTY_LABELS[d]}
-                      </div>
-                      <input type="number" min={0} max={100} value={diffDist[d]}
-                        onChange={e => setDiffDist(p => ({ ...p, [d]: Number(e.target.value) }))}
-                        className="input text-sm py-1.5 text-center" />
-                    </div>
-                  ))}
-                </div>
-                <div className="text-xs mt-1 text-right">
-                  Tổng: <span className={diffTotal === 100 ? 'text-green-400' : 'text-red-400 font-bold'}>{diffTotal}%</span>
-                </div>
-              </div>
-
-              {/* Target */}
-              <div>
-                <div className="text-xs text-text-muted mb-2">Đối tượng học sinh</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {TARGETS.map(t => (
-                    <button key={t.value} onClick={() => setTarget(t.value)}
-                      className={cn('px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                        target === t.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Single config */}
-          {mode === 'single' && (
-            <div className="card p-4 space-y-3">
-              <SectionLabel>Cấu hình câu đơn</SectionLabel>
-              <div>
-                <div className="text-xs text-text-muted mb-1.5">Số câu: <span className="text-accent font-bold">{singleCount}</span></div>
-                <input type="range" min={1} max={20} value={singleCount}
-                  onChange={e => setSingleCount(Number(e.target.value))} className="w-full accent-accent" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+              </>
+            )}
+            {mode === 'single' && (
+              <>
+                <SectionLabel>Cấu hình câu đơn</SectionLabel>
                 <div>
                   <div className="text-xs text-text-muted mb-1.5">Loại câu</div>
                   <select value={singleType} onChange={e => setSingleType(e.target.value)} className="input text-sm">
@@ -676,32 +705,17 @@ export default function GeneratePage() {
                     ))}
                   </select>
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Prompt mode config */}
-          {mode === 'prompt' && (
-            <div className="card p-4 space-y-3">
-              <SectionLabel>
-                <div className="flex items-center gap-1.5">
-                  <MessageSquare size={12} />
-                  Mô tả yêu cầu bằng tiếng Việt
-                </div>
-              </SectionLabel>
-              <textarea
-                value={promptText}
-                onChange={e => setPromptText(e.target.value)}
-                placeholder={"VD: Tạo 10 câu TN lớp 8 ôn hằng đẳng thức và phân thức, mix NB/TH/VD\n\nHoặc: 5 câu tự luận lớp 12 về đạo hàm mức VDC\n\nHoặc: Đề ôn thi HK2 lớp 9 tập trung hệ phương trình"}
-                rows={4}
-                className="input text-sm resize-none"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <div className="text-xs text-text-muted mb-1.5">Số câu (tuỳ chọn)</div>
-                  <input type="number" min={1} max={50} value={promptCount}
-                    onChange={e => setPromptCount(Number(e.target.value))} className="input text-sm" />
-                </div>
+              </>
+            )}
+            {mode === 'prompt' && (
+              <>
+                <SectionLabel>
+                  <div className="flex items-center gap-1.5"><MessageSquare size={12} />Prompt</div>
+                </SectionLabel>
+                <textarea value={promptText} rows={6}
+                  onChange={e => setPromptText(e.target.value)}
+                  placeholder={"VD: Tạo 10 câu TN lớp 8 ôn hằng đẳng thức...\n\nHoặc: 5 câu TL lớp 12 về đạo hàm mức VDC\n\nHoặc: Đề ôn HK2 lớp 9 tập trung hệ phương trình"}
+                  className="input text-sm resize-none" />
                 <div>
                   <div className="text-xs text-text-muted mb-1.5">Lớp (tuỳ chọn)</div>
                   <select value={grade ?? ''} onChange={e => e.target.value ? handleGradeSelect(Number(e.target.value)) : setGrade(null as any)} className="input text-sm">
@@ -709,33 +723,120 @@ export default function GeneratePage() {
                     {[6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
                   </select>
                 </div>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-accent/10 text-accent">
-                <Info size={12} />
-                AI sẽ phân tích yêu cầu, tìm câu mẫu trong ngân hàng, sinh đề mới và kiểm tra đáp án tự động
-              </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
+          {/* ─ Col 4: Phân phối độ khó + Đối tượng ─ */}
+          <div className="card p-4 space-y-3">
+            {mode === 'exam' && (
+              <>
+                <SectionLabel>Phân phối độ khó</SectionLabel>
+                <div className="grid grid-cols-2 gap-1">
+                  {(Object.entries(DIFF_PRESETS) as [DiffPresetKey, any][]).map(([key, p]) => (
+                    <button key={key} onClick={() => setDiffPreset(key)}
+                      className={cn('py-1.5 rounded-lg text-[11px] font-medium transition-colors',
+                        diffPreset === key ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['NB','TH','VD','VDC'] as const).map(d => (
+                    <div key={d} className="flex items-center gap-2">
+                      <span className="text-[10px] font-semibold w-8 shrink-0" style={{ color: DIFF_COLORS[d] }}>
+                        {DIFFICULTY_LABELS[d]}
+                      </span>
+                      <input type="number" min={0} max={100} value={diffDist[d]}
+                        onChange={e => setDiffDist(p => ({ ...p, [d]: Number(e.target.value) }))}
+                        className="input text-sm py-1 text-center flex-1 min-w-0" />
+                      <span className="text-[10px] text-text-dim">%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-xs text-right">
+                  Tổng: <span className={diffTotal === 100 ? 'text-green-400 font-semibold' : 'text-red-400 font-bold'}>{diffTotal}%</span>
+                </div>
+                <div className="border-t border-bg-border pt-3">
+                  <div className="text-xs text-text-muted mb-1.5">Đối tượng học sinh</div>
+                  <div className="flex flex-col gap-1">
+                    {TARGETS.map(t => (
+                      <button key={t.value} onClick={() => setTarget(t.value)}
+                        className={cn('py-1.5 rounded-lg text-xs font-medium transition-colors',
+                          target === t.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+            {mode === 'single' && (
+              <div className="flex flex-col gap-3 h-full">
+                <SectionLabel>Phân phối & Đối tượng</SectionLabel>
+                <div className="text-xs text-text-muted mb-1.5">Đối tượng học sinh</div>
+                <div className="flex flex-col gap-1.5">
+                  {TARGETS.map(t => (
+                    <button key={t.value} onClick={() => setTarget(t.value)}
+                      className={cn('py-2 rounded-lg text-sm font-medium transition-colors',
+                        target === t.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-xs bg-accent/10 text-accent mt-auto">
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  AI tham khảo câu mẫu trong ngân hàng phù hợp với cấu hình đã chọn
+                </div>
+              </div>
+            )}
+            {mode === 'prompt' && (
+              <div className="flex flex-col gap-3 h-full">
+                <SectionLabel>Ghi chú</SectionLabel>
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg text-xs bg-accent/10 text-accent">
+                  <Info size={12} className="shrink-0 mt-0.5" />
+                  AI sẽ phân tích yêu cầu, tìm câu mẫu trong ngân hàng, sinh đề mới và kiểm tra đáp án tự động
+                </div>
+                <div className="text-xs text-text-muted mb-1.5 mt-1">Đối tượng học sinh</div>
+                <div className="flex flex-col gap-1.5">
+                  {TARGETS.map(t => (
+                    <button key={t.value} onClick={() => setTarget(t.value)}
+                      className={cn('py-2 rounded-lg text-sm font-medium transition-colors',
+                        target === t.value ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Generate button — full width */}
+        <div>
           <button onClick={handleGenerate}
             disabled={generating || (mode === 'exam' && diffTotal !== 100) || (mode === 'prompt' && !promptText.trim())}
-            className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+            className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base">
             {generating
               ? <><Loader2 size={16} className="animate-spin" />Đang sinh đề...</>
               : <><Wand2 size={16} />{mode === 'prompt' ? 'Sinh đề từ prompt' : 'Sinh đề AI'}</>}
           </button>
           {mode === 'exam' && diffTotal !== 100 && (
-            <p className="text-xs text-red-400 text-center -mt-2">Tổng % phải = 100 (hiện {diffTotal}%)</p>
+            <p className="text-xs text-red-400 text-center mt-1">Tổng % phải = 100 (hiện {diffTotal}%)</p>
           )}
           {mode === 'prompt' && !promptText.trim() && (
-            <p className="text-xs text-text-dim text-center -mt-2">Nhập mô tả yêu cầu để bắt đầu</p>
+            <p className="text-xs text-text-dim text-center mt-1">Nhập mô tả yêu cầu để bắt đầu</p>
           )}
         </div>
+      </div>
 
-        {/* ── Result ── */}
-        <div className="space-y-4">
+      {/* ── Bottom: List + Preview ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+        {/* Left: Question list */}
+        <div className="flex flex-col gap-3">
           {!result && !generating && !error && (
-            <div className="card flex items-center justify-center py-32">
+            <div className="card flex items-center justify-center py-24">
               <div className="text-center">
                 <Wand2 size={40} className="text-text-dim mx-auto mb-3" />
                 <div className="text-text-muted">Cấu hình và nhấn "Sinh đề AI"</div>
@@ -771,7 +872,6 @@ export default function GeneratePage() {
                       </span>
                     )}
                   </div>
-                  {/* Verification stats */}
                   {result.verification && (
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-green-400 flex items-center gap-1">
@@ -783,18 +883,13 @@ export default function GeneratePage() {
                         </span>
                       )}
                       {result.verification.removed > 0 && (
-                        <span className="text-xs text-red-400">
-                          {result.verification.removed} loại bỏ
-                        </span>
+                        <span className="text-xs text-red-400">{result.verification.removed} loại bỏ</span>
                       )}
                       {result.verification.ambiguous > 0 && (
-                        <span className="text-xs text-yellow-500">
-                          {result.verification.ambiguous} cần kiểm tra
-                        </span>
+                        <span className="text-xs text-yellow-500">{result.verification.ambiguous} cần kiểm tra</span>
                       )}
                     </div>
                   )}
-                  {/* Parsed criteria from prompt mode */}
                   {result.criteria && mode === 'prompt' && (
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {result.criteria.grade && (
@@ -842,52 +937,86 @@ export default function GeneratePage() {
               </div>
 
               {/* Question list */}
-              <div className="card overflow-hidden max-h-[600px] overflow-y-auto">
-                {mode === 'exam'
-                  ? Object.entries(grouped).map(([diff, qs]) => (
-                      <div key={diff}>
-                        <div className="px-4 py-2.5 flex items-center gap-2 sticky top-0 z-10"
-                          style={{ background: `${DIFF_COLORS[diff]}14`, borderLeft: `4px solid ${DIFF_COLORS[diff]}` }}>
-                          <span className="font-bold text-sm" style={{ color: DIFF_COLORS[diff] }}>
-                            {DIFFICULTY_LABELS[diff]}
-                          </span>
-                          <span className="text-text-dim text-xs">{qs.length} câu</span>
+              <div className="card overflow-hidden">
+                <div className="max-h-[calc(100vh-500px)] overflow-y-auto min-h-[200px]">
+                  {mode === 'exam'
+                    ? Object.entries(grouped).map(([diff, qs]) => (
+                        <div key={diff}>
+                          <div className="px-4 py-2.5 flex items-center gap-2 sticky top-0 z-10"
+                            style={{ background: `${DIFF_COLORS[diff]}14`, borderLeft: `4px solid ${DIFF_COLORS[diff]}` }}>
+                            <span className="font-bold text-sm" style={{ color: DIFF_COLORS[diff] }}>
+                              {DIFFICULTY_LABELS[diff]}
+                            </span>
+                            <span className="text-text-dim text-xs">{qs.length} câu</span>
+                          </div>
+                          {qs.map((q, i) => {
+                            const globalNum = result.questions.findIndex(r => r === q) + 1
+                            return <QuestionCard key={i} q={q} num={globalNum}
+                              onEdit={updated => handleEditQuestion(result.questions.findIndex(r => r === q), updated)} />
+                          })}
                         </div>
-                        {qs.map((q, i) => {
-                          const globalNum = result.questions.findIndex(r => r === q) + 1
-                          return <QuestionCard key={i} q={q} num={globalNum} />
-                        })}
-                      </div>
-                    ))
-                  : result.questions.map((q, i) => <QuestionCard key={i} q={q} num={i + 1} />)
-                }
-              </div>
-
-              {/* PDF Preview */}
-              {previewHtml && (
-                <div className="card overflow-hidden">
-                  <div className="px-4 py-3 border-b border-bg-border flex items-center gap-4">
-                    <span className="text-sm font-medium text-text">Xem trước PDF</span>
-                    <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
-                      <input type="checkbox" checked={previewAnswers}
-                        onChange={e => setPreviewAnswers(e.target.checked)} className="accent-accent" />
-                      Đáp án
-                    </label>
-                    <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
-                      <input type="checkbox" checked={previewSolutions}
-                        onChange={e => setPreviewSolutions(e.target.checked)} className="accent-accent" />
-                      Lời giải
-                    </label>
-                  </div>
-                  <iframe srcDoc={previewHtml} className="w-full border-0" style={{ height: 500 }} title="PDF Preview" />
+                      ))
+                    : result.questions.map((q, i) => <QuestionCard key={i} q={q} num={i + 1}
+                        onEdit={updated => handleEditQuestion(i, updated)} />)
+                  }
                 </div>
-              )}
+              </div>
             </>
+          )}
+        </div>
+
+        {/* Right: PDF Preview */}
+        <div className="flex flex-col">
+          {!result && !generating && (
+            <div className="card flex items-center justify-center py-24 flex-1">
+              <div className="text-center">
+                <Copy size={36} className="text-text-dim mx-auto mb-3" />
+                <div className="text-text-dim text-sm">Xem trước đề sẽ hiển thị ở đây</div>
+              </div>
+            </div>
+          )}
+
+          {generating && (
+            <div className="card flex items-center justify-center py-24 flex-1">
+              <div className="text-center space-y-2">
+                <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto" />
+                <div className="text-text-dim text-sm">Đang tạo xem trước...</div>
+              </div>
+            </div>
+          )}
+
+          {result && (
+            <div className="card overflow-hidden flex flex-col">
+              <div className="px-4 py-3 border-b border-bg-border flex items-center gap-4 shrink-0">
+                <span className="text-sm font-medium text-text">Xem trước PDF</span>
+                <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+                  <input type="checkbox" checked={previewAnswers}
+                    onChange={e => setPreviewAnswers(e.target.checked)} className="accent-accent" />
+                  Đáp án
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+                  <input type="checkbox" checked={previewSolutions}
+                    onChange={e => setPreviewSolutions(e.target.checked)} className="accent-accent" />
+                  Lời giải
+                </label>
+              </div>
+              {previewHtml
+                ? <iframe srcDoc={previewHtml} className="w-full border-0" style={{ height: 'calc(100vh - 460px)', minHeight: 400 }} title="PDF Preview" />
+                : (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="text-center space-y-2">
+                      <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto" />
+                      <div className="text-text-dim text-xs">Đang tạo xem trước...</div>
+                    </div>
+                  </div>
+                )
+              }
+            </div>
           )}
         </div>
       </div>
 
-      {/* Send to class dialog */}
+      {/* ── Send to class dialog ── */}
       {sendDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-md shadow-2xl">

@@ -57,8 +57,15 @@ export function MathText({ text, className, block = false }: MathTextProps) {
     if (!text) return ''
     const tokens = tokenize(text)
     return tokens.map(t => {
-      if (t.type === 'text') return t.content
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      if (t.type === 'text') {
+        const escaped = t.content
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        return escaped
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.+?)\*/g, '<em>$1</em>')
+          .replace(/`([^`]+)`/g, '<code class="bg-white/10 px-1 rounded text-[0.9em] font-mono">$1</code>')
+          .replace(/\n/g, '<br>')
+      }
       if (t.type === 'display') return renderLatex(t.content, true)
       return renderLatex(t.content, false)
     }).join('')

@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Upload, BookOpen, Wand2, Users, MessageCircle,
-  BarChart3, LogOut, Menu, X, ChevronRight, Sigma,
+  BarChart3, LogOut, Menu, X, ChevronRight, ChevronLeft, Sigma,
 } from 'lucide-react'
 
 const NAV = [
@@ -23,6 +23,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('sidebar-collapsed') === 'true'
+    return false
+  })
+  const toggleCollapsed = () => setCollapsed(c => {
+    const next = !c
+    localStorage.setItem('sidebar-collapsed', String(next))
+    return next
+  })
 
   useEffect(() => {
     if (!loading && !user) router.push('/login')
@@ -59,48 +68,62 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Sidebar */}
       <aside className={cn(
-        'fixed top-0 left-0 h-full w-64 bg-bg-card border-r border-bg-border z-50',
-        'flex flex-col transition-transform duration-300',
+        'fixed top-0 left-0 h-full bg-bg-card border-r border-bg-border z-50',
+        'flex flex-col transition-all duration-300',
         'lg:translate-x-0 lg:static lg:z-auto',
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        collapsed ? 'w-16' : 'w-64',
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}>
         {/* Brand */}
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-bg-border">
-          <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center text-white font-bold text-lg">
+        <div className={cn('flex items-center border-b border-bg-border py-5 shrink-0',
+          collapsed ? 'justify-center px-3' : 'gap-3 px-5')}>
+          <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center text-white font-bold text-lg shrink-0">
             <Sigma size={20} />
           </div>
-          <div>
-            <div className="font-bold text-text text-base leading-tight">MathPlay</div>
-            <div className="text-xs text-text-dim">Teacher Dashboard</div>
-          </div>
-          <button
-            className="ml-auto lg:hidden text-text-dim hover:text-text"
-            onClick={() => setSidebarOpen(false)}
-          >
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-text text-base leading-tight">MathPlay</div>
+              <div className="text-xs text-text-dim">Teacher Dashboard</div>
+            </div>
+          )}
+          <button className="lg:hidden text-text-dim hover:text-text ml-auto" onClick={() => setSidebarOpen(false)}>
             <X size={18} />
+          </button>
+          <button
+            className={cn('hidden lg:flex text-text-dim hover:text-text transition-colors', collapsed ? '' : 'ml-auto')}
+            onClick={toggleCollapsed}
+            title={collapsed ? 'Mở rộng' : 'Thu gọn'}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
 
         {/* User */}
-        <div className="px-4 py-3 border-b border-bg-border">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-sm font-bold">
+        <div className={cn('border-b border-bg-border shrink-0', collapsed ? 'flex justify-center py-3' : 'px-4 py-3')}>
+          <div className={cn('flex items-center', collapsed ? '' : 'gap-3')}>
+            <div className="w-9 h-9 rounded-full bg-accent/20 border border-accent/30 flex items-center justify-center text-accent text-sm font-bold shrink-0"
+              title={collapsed ? (user.full_name || user.email) : undefined}>
               {initials}
             </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-text truncate">{user.full_name || user.email}</div>
-              <div className="text-xs text-text-dim">Giáo viên</div>
-            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-text truncate">{user.full_name || user.email}</div>
+                <div className="text-xs text-text-dim">Giáo viên</div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+        <nav className={cn('flex-1 overflow-y-auto py-3 space-y-4', collapsed ? 'px-2' : 'px-3')}>
           {Object.entries(sections).map(([section, items]) => (
             <div key={section}>
-              <div className="text-xs font-semibold text-text-dim uppercase tracking-wider px-3 mb-1.5">
-                {section}
-              </div>
+              {!collapsed && (
+                <div className="text-xs font-semibold text-text-dim uppercase tracking-wider px-3 mb-1.5">
+                  {section}
+                </div>
+              )}
+              {collapsed && <div className="border-t border-bg-border mx-1 mb-2 opacity-30" />}
               <div className="space-y-0.5">
                 {items.map(item => {
                   const active = pathname === item.href || pathname.startsWith(item.href + '/')
@@ -108,12 +131,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={cn('nav-link', active && 'active')}
+                      title={collapsed ? item.label : undefined}
+                      className={cn('nav-link', active && 'active', collapsed && '!px-2 justify-center')}
                       onClick={() => setSidebarOpen(false)}
                     >
                       <item.icon size={16} />
-                      {item.label}
-                      {active && <ChevronRight size={14} className="ml-auto opacity-60" />}
+                      {!collapsed && item.label}
+                      {!collapsed && active && <ChevronRight size={14} className="ml-auto opacity-60" />}
                     </Link>
                   )
                 })}
@@ -123,13 +147,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </nav>
 
         {/* Footer */}
-        <div className="px-3 py-3 border-t border-bg-border">
+        <div className={cn('border-t border-bg-border shrink-0', collapsed ? 'px-2 py-3' : 'px-3 py-3')}>
           <button
             onClick={logout}
-            className="nav-link w-full hover:text-red-400 hover:bg-red-400/10"
+            title={collapsed ? 'Đăng xuất' : undefined}
+            className={cn('nav-link w-full hover:text-red-400 hover:bg-red-400/10', collapsed && '!px-2 justify-center')}
           >
             <LogOut size={16} />
-            Đăng xuất
+            {!collapsed && 'Đăng xuất'}
           </button>
         </div>
       </aside>
