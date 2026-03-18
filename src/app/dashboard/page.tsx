@@ -259,7 +259,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
               <div className="grid grid-cols-2 gap-1 mt-2">
                 {diffData.map((d, i) => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-xs text-text-muted">
+                  <div key={`${d.name}-${i}`} className="flex items-center gap-1.5 text-xs text-text-muted">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                     {d.name}: {d.value}
                   </div>

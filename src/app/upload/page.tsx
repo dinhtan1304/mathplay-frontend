@@ -55,7 +55,7 @@ export default function UploadPage() {
   }, [])
 
   // Load questions from DB after processing completes (paginate if >100)
-  const loadQuestions = useCallback(async (jobId: number) => {
+  const loadQuestions = useCallback(async (jobId: number, _retry = 0) => {
     try {
       const allQuestions: Question[] = []
       let page = 1
@@ -66,6 +66,12 @@ export default function UploadPage() {
         total = res.total
         if (allQuestions.length >= total) break
         page++
+      }
+      // Safety net: if 0 questions but exam is completed, bank save may still be
+      // committing — retry once after a short delay (race condition guard)
+      if (allQuestions.length === 0 && _retry < 2) {
+        await new Promise(r => setTimeout(r, 1500))
+        return loadQuestions(jobId, _retry + 1)
       }
       setQuestions(allQuestions)
       setSelectedIds(new Set(allQuestions.map((q: Question) => q.id)))
@@ -79,6 +85,28 @@ export default function UploadPage() {
   }, [])
 
   const processFile = useCallback(async (file: File) => {
+    // ── Client-side file validation ──
+    const ALLOWED_TYPES: Record<string, string[]> = {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'text/plain': ['.txt'],
+      'text/markdown': ['.md'],
+    }
+    const MAX_FILE_SIZE_MB = 50
+    const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '')
+    const allowedExts = Object.values(ALLOWED_TYPES).flat()
+    if (!allowedExts.includes(ext)) {
+      setError(`File type '${ext}' is not supported. Allowed: ${allowedExts.join(', ')}`)
+      return
+    }
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum ${MAX_FILE_SIZE_MB}MB.`)
+      return
+    }
+
     // Reset state
     setError(''); setStage('uploading'); setUploadPct(0)
     setQuestions([]); setSelectedIds(new Set()); setSavedMsg(''); setJobId(null)

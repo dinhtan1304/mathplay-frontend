@@ -5,6 +5,7 @@
 'use client'
 import { useMemo } from 'react'
 import katex from 'katex'
+import DOMPurify from 'dompurify'
 import 'katex/dist/katex.min.css'
 
 // Split text thành mảng: string thường và LaTeX block
@@ -71,7 +72,22 @@ export function MathText({ text, className, block = false }: MathTextProps) {
     }).join('')
   }, [text])
 
+  // Sanitize HTML to prevent XSS while preserving KaTeX output
+  const sanitizedHtml = useMemo(() => {
+    if (!html) return ''
+    if (typeof window === 'undefined') return html
+    return DOMPurify.sanitize(html, {
+      ADD_TAGS: ['semantics', 'annotation', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub',
+                 'mfrac', 'mover', 'munder', 'msqrt', 'mroot', 'mtable', 'mtr', 'mtd',
+                 'mtext', 'mspace', 'mpadded', 'menclose', 'math'],
+      ADD_ATTR: ['xmlns', 'encoding', 'mathvariant', 'stretchy', 'fence', 'separator',
+                 'accent', 'accentunder', 'columnalign', 'rowalign', 'columnspacing',
+                 'rowspacing', 'columnlines', 'rowlines', 'frame', 'framespacing',
+                 'equalrows', 'equalcolumns', 'displaystyle', 'scriptlevel', 'aria-hidden'],
+    })
+  }, [html])
+
   if (!text) return null
   const Tag = block ? 'div' : 'span'
-  return <Tag className={className} dangerouslySetInnerHTML={{ __html: html }} />
+  return <Tag className={className} dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
 }

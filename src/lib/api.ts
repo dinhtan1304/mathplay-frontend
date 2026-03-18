@@ -74,7 +74,13 @@ export const authApi = {
   me: () =>
     api.get<User>('/auth/me').then(r => r.data),
 
-  logout: () => {
+  logout: async () => {
+    // Revoke token on server before clearing locally
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Ignore errors — clear local state regardless
+    }
     if (typeof window !== 'undefined') localStorage.removeItem('access_token')
   },
 }
@@ -109,29 +115,46 @@ export const parserApi = {
   getStatus: (jobId: number) =>
     api.get<Exam>(`/parser/status/${jobId}`).then(r => r.data),
 
-  // GET /parser/stream/{job_id}?token=... (SSE)
+  // Request a one-time SSE token, then connect to SSE stream
   subscribeProgress: (jobId: number, onEvent: (data: ParseProgress) => void): () => void => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
-    const url = `${API_BASE}/parser/stream/${jobId}${token ? `?token=${token}` : ''}`
-    const es = new EventSource(url)
-    es.addEventListener('progress', (e: MessageEvent) => {
-      try { onEvent(JSON.parse(e.data)) } catch {}
-    })
-    es.addEventListener('complete', (e: MessageEvent) => {
-      try { onEvent({ ...JSON.parse(e.data), stage: 'done' }) } catch {}
-      es.close()
-    })
-    es.addEventListener('error_event', (e: MessageEvent) => {
-      try { onEvent({ ...JSON.parse(e.data), stage: 'error' }) } catch {}
-      es.close()
-    })
-    // stream_timeout means SSE timed out but parsing may still be running.
-    // Just close the SSE connection — polling fallback will detect completion.
-    es.addEventListener('stream_timeout', () => {
-      es.close()
-    })
-    es.onerror = () => es.close()
-    return () => es.close()
+    let es: EventSource | null = null
+    let cancelled = false
+
+    // Get one-time SSE token, fall back to JWT if endpoint unavailable
+    const connect = async () => {
+      let sseToken: string | null = null
+      try {
+        const res = await api.post<{ token: string }>(`/parser/stream-token/${jobId}`)
+        sseToken = res.data.token
+      } catch {
+        // Fallback: use JWT directly (backward compatible)
+        sseToken = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+      }
+      if (cancelled || !sseToken) return
+
+      const url = `${API_BASE}/parser/stream/${jobId}?token=${sseToken}`
+      es = new EventSource(url)
+      es.addEventListener('progress', (e: MessageEvent) => {
+        try { onEvent(JSON.parse(e.data)) } catch {}
+      })
+      es.addEventListener('complete', (e: MessageEvent) => {
+        try { onEvent({ ...JSON.parse(e.data), stage: 'done' }) } catch {}
+        es!.close()
+      })
+      es.addEventListener('error_event', (e: MessageEvent) => {
+        try { onEvent({ ...JSON.parse(e.data), stage: 'error' }) } catch {}
+        es!.close()
+      })
+      // stream_timeout means SSE timed out but parsing may still be running.
+      // Just close the SSE connection — polling fallback will detect completion.
+      es.addEventListener('stream_timeout', () => {
+        es!.close()
+      })
+      es.onerror = () => es!.close()
+    }
+
+    connect()
+    return () => { cancelled = true; es?.close() }
   },
 
   // GET /parser/history
