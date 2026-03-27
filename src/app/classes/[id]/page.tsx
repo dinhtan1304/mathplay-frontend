@@ -45,7 +45,7 @@ function CreateAssignmentModal({ classId, onCreated, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="card w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-bg-border flex items-center justify-between">
           <h3 className="font-semibold text-text">Tạo bài tập mới</h3>

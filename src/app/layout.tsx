@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
-import { Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { Inter, JetBrains_Mono } from 'next/font/google'
 import { AuthProvider } from '@/lib/auth'
 import './globals.css'
 
-const space = Space_Grotesk({
-  subsets: ['latin'],
+const inter = Inter({
+  subsets: ['latin', 'vietnamese'],
   variable: '--font-space',
   weight: ['300', '400', '500', '600', '700'],
 })
@@ -22,8 +22,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi" className={`${space.variable} ${mono.variable}`}>
-      <body>
+    <html lang="vi" className={`${inter.variable} ${mono.variable}`}>
+      <body suppressHydrationWarning>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

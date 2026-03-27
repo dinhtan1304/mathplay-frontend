@@ -3,19 +3,19 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0d0f14;
-  --bg-card: #13161e;
-  --bg-border: #1e2230;
-  --bg-hover: #1a1e28;
+  --bg: #0a0c10;
+  --bg-card: #11141c;
+  --bg-border: #1c2030;
+  --bg-hover: #181c28;
   --accent: #6366f1;
   --accent-hover: #818cf8;
-  --accent-muted: rgba(99, 102, 241, 0.12);
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --danger: #ef4444;
-  --text: #f8fafc;
-  --text-muted: #b0bec5;
-  --text-dim: #718096;
+  --accent-muted: rgba(99, 102, 241, 0.10);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
 }
 
 * { box-sizing: border-box; }
@@ -23,68 +23,90 @@
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-space), system-ui, sans-serif;
+  font-family: var(--font-space), 'Inter', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  letter-spacing: -0.01em;
+  line-height: 1.6;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+/* Scrollbar — webkit + Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-border) transparent;
+}
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--bg-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--bg-border); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
 /* KaTeX math */
 .katex { font-size: 1em; }
 
 /* Selection */
-::selection { background: var(--accent-muted); color: var(--text); }
+::selection { background: rgba(99, 102, 241, 0.25); color: var(--text); }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 @layer components {
   .card {
-    @apply bg-bg-card border border-bg-border rounded-xl;
+    @apply bg-bg-card border border-bg-border rounded-2xl;
   }
 
   .btn-primary {
-    @apply bg-accent hover:bg-accent-hover text-white font-medium px-4 py-2 rounded-lg
-           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-accent hover:bg-accent-hover text-white font-semibold px-4 py-2 rounded-xl
+           transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed
+           shadow-[0_1px_2px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)]
+           hover:shadow-[0_4px_12px_rgba(99,102,241,0.25)] active:scale-[0.98];
   }
 
   .btn-ghost {
     @apply bg-transparent hover:bg-bg-hover text-text-muted hover:text-text
-           font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+           font-medium px-4 py-2 rounded-xl transition-all duration-200
+           active:scale-[0.98];
   }
 
   .btn-danger {
     @apply bg-danger/10 hover:bg-danger/20 text-red-400 font-medium px-4 py-2
-           rounded-lg transition-colors duration-150;
+           rounded-xl transition-all duration-200 active:scale-[0.98];
   }
 
   .input {
-    @apply bg-bg-hover border border-bg-border rounded-lg px-3 py-2 text-text
-           placeholder:text-text-dim focus:outline-none focus:border-accent
-           focus:ring-1 focus:ring-accent/30 transition-colors duration-150 w-full;
+    @apply bg-bg-hover/70 border border-bg-border rounded-xl px-3.5 py-2.5 text-text text-sm
+           placeholder:text-text-dim/60 focus:outline-none focus:border-accent/60
+           focus:ring-2 focus:ring-accent/15 transition-all duration-200 w-full;
   }
 
   .badge {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide;
   }
 
   .nav-link {
-    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-muted
-           hover:text-text hover:bg-bg-hover transition-all duration-150 text-sm font-medium;
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-xl text-text-muted
+           hover:text-text hover:bg-bg-hover transition-all duration-150 text-[13px] font-medium;
   }
 
   .nav-link.active {
-    @apply text-accent bg-accent-muted;
+    @apply text-accent bg-accent-muted font-semibold;
   }
 
   .stat-card {
-    @apply card p-5 flex flex-col gap-2;
+    @apply card p-5 flex flex-col gap-3;
   }
 
   .table-row {
     @apply border-b border-bg-border last:border-0 hover:bg-bg-hover/50 transition-colors;
+  }
+
+  /* Section labels */
+  .section-label {
+    @apply text-[11px] font-bold text-text-dim uppercase tracking-widest;
   }
 }
 
@@ -95,7 +117,7 @@ html, body {
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -104,12 +126,12 @@ html, body {
   100% { background-position: 200% 0; }
 }
 
-.animate-fade-in { animation: fadeIn 0.25s ease; }
-.animate-slide-up { animation: slideUp 0.3s ease; }
+.animate-fade-in { animation: fadeIn 0.2s ease; }
+.animate-slide-up { animation: slideUp 0.25s cubic-bezier(0.22, 0.61, 0.36, 1); }
 
 .skeleton {
   background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
-  border-radius: 6px;
+  border-radius: 8px;
 }

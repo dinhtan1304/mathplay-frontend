@@ -18,22 +18,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = localStorage.getItem('access_token')
-    if (!token) { setLoading(false); return }
+    if (!token) {
+      document.cookie = 'has_token=; path=/; max-age=0'
+      setLoading(false)
+      return
+    }
     authApi.me()
-      .then(setUser)
-      .catch(() => localStorage.removeItem('access_token'))
+      .then((u) => {
+        setUser(u)
+        document.cookie = 'has_token=1; path=/; max-age=691200; SameSite=Lax'
+      })
+      .catch(() => {
+        localStorage.removeItem('access_token')
+        document.cookie = 'has_token=; path=/; max-age=0'
+      })
       .finally(() => setLoading(false))
   }, [])
 
   const login = async (email: string, password: string) => {
     const token = await authApi.login({ email, password })
     localStorage.setItem('access_token', token.access_token)
+    // Set cookie flag so server-side middleware can detect auth
+    document.cookie = 'has_token=1; path=/; max-age=691200; SameSite=Lax'
     const me = await authApi.me()
     setUser(me)
   }
 
-  const logout = () => {
-    authApi.logout()
+  const logout = async () => {
+    await authApi.logout()
+    document.cookie = 'has_token=; path=/; max-age=0'
     setUser(null)
     window.location.href = '/login'
   }

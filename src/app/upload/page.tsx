@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { parserApi, questionsApi, classesApi, assignmentsApi, getErrorMessage } from '@/lib/api'
 import type { Question, ClassRoom, Exam } from '@/types'
-import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, cn, formatDateTime } from '@/lib/utils'
+import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, SUBJECT_LABELS, cn, formatDateTime } from '@/lib/utils'
 import { Upload, CheckCircle, XCircle, Loader2, BookmarkPlus, ChevronDown, Send, X, Sparkles, History, AlertTriangle, RefreshCw, BookOpen } from 'lucide-react'
 import { MathText } from '@/lib/math'
 import GenerateSimilarModal from '@/components/GenerateSimilarModal'
@@ -39,6 +39,7 @@ export default function UploadPage() {
   const [sentMsg, setSentMsg] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [subjectHint, setSubjectHint] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)
   const unsubRef = useRef<(() => void) | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -55,7 +56,7 @@ export default function UploadPage() {
   }, [])
 
   // Load questions from DB after processing completes (paginate if >100)
-  const loadQuestions = useCallback(async (jobId: number) => {
+  const loadQuestions = useCallback(async (jobId: number, _retry = 0) => {
     try {
       const allQuestions: Question[] = []
       let page = 1
@@ -66,6 +67,12 @@ export default function UploadPage() {
         total = res.total
         if (allQuestions.length >= total) break
         page++
+      }
+      // Safety net: if 0 questions but exam is completed, bank save may still be
+      // committing — retry once after a short delay (race condition guard)
+      if (allQuestions.length === 0 && _retry < 2) {
+        await new Promise(r => setTimeout(r, 1500))
+        return loadQuestions(jobId, _retry + 1)
       }
       setQuestions(allQuestions)
       setSelectedIds(new Set(allQuestions.map((q: Question) => q.id)))
@@ -79,6 +86,31 @@ export default function UploadPage() {
   }, [])
 
   const processFile = useCallback(async (file: File) => {
+    if (!subjectHint) {
+      setError('Vui lòng chọn môn học trước khi tải lên'); return
+    }
+    // ── Client-side file validation ──
+    const ALLOWED_TYPES: Record<string, string[]> = {
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
+      'image/png': ['.png'],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'text/plain': ['.txt'],
+      'text/markdown': ['.md'],
+    }
+    const MAX_FILE_SIZE_MB = 50
+    const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '')
+    const allowedExts = Object.values(ALLOWED_TYPES).flat()
+    if (!allowedExts.includes(ext)) {
+      setError(`File type '${ext}' is not supported. Allowed: ${allowedExts.join(', ')}`)
+      return
+    }
+    if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum ${MAX_FILE_SIZE_MB}MB.`)
+      return
+    }
+
     // Reset state
     setError(''); setStage('uploading'); setUploadPct(0)
     setQuestions([]); setSelectedIds(new Set()); setSavedMsg(''); setJobId(null)
@@ -87,7 +119,7 @@ export default function UploadPage() {
     if (pollRef.current) clearInterval(pollRef.current)
 
     try {
-      const { job_id } = await parserApi.upload(file, setUploadPct)
+      const { job_id } = await parserApi.upload(file, setUploadPct, subjectHint)
       setJobId(job_id)
       setStage('processing')
       setProgress({ percent: 5, message: 'Đang khởi tạo...' })
@@ -150,9 +182,12 @@ export default function UploadPage() {
       setStage('error')
       setError(getErrorMessage(e))
     }
-  }, [loadQuestions])
+  }, [loadQuestions, subjectHint])
 
   const handleFile = useCallback((file: File) => {
+    if (!subjectHint) {
+      setError('Vui lòng chọn môn học trước khi tải lên'); return
+    }
     if (!file.name.match(/\.(pdf|docx|doc)$/i)) {
       setError('Chỉ hỗ trợ file PDF, DOCX, DOC'); return
     }
@@ -166,7 +201,7 @@ export default function UploadPage() {
     } else {
       processFile(file)
     }
-  }, [history, processFile])
+  }, [history, processFile, subjectHint])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false)
@@ -231,30 +266,68 @@ export default function UploadPage() {
         <p className="text-text-muted text-sm mt-1">Tải lên PDF hoặc DOCX — AI sẽ tự động trích xuất câu hỏi</p>
       </div>
 
-      {/* Upload zone */}
+      {/* Subject hint + Upload zone */}
       {(stage === 'idle' || stage === 'error') && (
-        <div
-          className={cn(
-            'card border-2 border-dashed p-12 text-center cursor-pointer transition-colors duration-150',
-            dragOver ? 'border-accent bg-accent/5' : 'border-bg-border hover:border-accent/50'
-          )}
-          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          onClick={() => fileInput.current?.click()}
-        >
-          <input
-            ref={fileInput} type="file" accept=".pdf,.docx,.doc" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
-          />
-          <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
-            <Upload size={28} className="text-accent" />
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-text-muted whitespace-nowrap">Môn học: <span className="text-red-400">*</span></label>
+            <select
+              value={subjectHint}
+              onChange={e => { setSubjectHint(e.target.value); setError('') }}
+              className={cn("input text-sm flex-1 max-w-xs", !subjectHint && "text-text-muted")}
+            >
+              <option value="" disabled>-- Chọn môn học --</option>
+              <optgroup label="Cốt lõi">
+                <option value="toan">Toán</option>
+                <option value="tieng-viet">Tiếng Việt (Lớp 1-5)</option>
+                <option value="ngu-van">Ngữ văn (Lớp 6-12)</option>
+                <option value="tieng-anh">Tiếng Anh</option>
+              </optgroup>
+              <optgroup label="Khoa học tự nhiên">
+                <option value="khtn">KHTN (Lớp 6-9)</option>
+                <option value="vat-li">Vật lí (Lớp 10-12)</option>
+                <option value="hoa-hoc">Hóa học (Lớp 10-12)</option>
+                <option value="sinh-hoc">Sinh học (Lớp 10-12)</option>
+                <option value="khoa-hoc">Khoa học (Lớp 4-5)</option>
+              </optgroup>
+              <optgroup label="Xã hội">
+                <option value="ls-dl">LS&ĐL (Lớp 4-9)</option>
+                <option value="lich-su">Lịch sử (Lớp 10-12)</option>
+                <option value="dia-li">Địa lí (Lớp 10-12)</option>
+                <option value="dao-duc">Đạo đức (Lớp 1-5)</option>
+                <option value="gdcd">GDCD (Lớp 6-9)</option>
+                <option value="gdktpl">KT&PL (Lớp 10-12)</option>
+              </optgroup>
+              <optgroup label="Khác">
+                <option value="tin-hoc">Tin học</option>
+                <option value="cong-nghe">Công nghệ</option>
+              </optgroup>
+            </select>
+            <span className="text-xs text-text-dim">Bắt buộc chọn môn học</span>
           </div>
-          <div className="text-lg font-semibold text-text mb-1">
-            {dragOver ? 'Thả file vào đây' : 'Kéo thả hoặc nhấn để chọn file'}
+          <div
+            className={cn(
+              'card border-2 border-dashed p-12 text-center cursor-pointer transition-colors duration-150',
+              dragOver ? 'border-accent bg-accent/5' : 'border-bg-border hover:border-accent/50'
+            )}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInput.current?.click()}
+          >
+            <input
+              ref={fileInput} type="file" accept=".pdf,.docx,.doc" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }}
+            />
+            <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
+              <Upload size={28} className="text-accent" />
+            </div>
+            <div className="text-lg font-semibold text-text mb-1">
+              {dragOver ? 'Thả file vào đây' : 'Kéo thả hoặc nhấn để chọn file'}
+            </div>
+            <div className="text-sm text-text-muted">Hỗ trợ PDF, DOCX, DOC — tối đa 20MB</div>
+            {error && <div className="mt-4 text-sm text-red-400">{error}</div>}
           </div>
-          <div className="text-sm text-text-muted">Hỗ trợ PDF, DOCX, DOC — tối đa 20MB</div>
-          {error && <div className="mt-4 text-sm text-red-400">{error}</div>}
         </div>
       )}
 
@@ -445,6 +518,11 @@ export default function UploadPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       <span className="text-xs text-text-dim font-mono">#{idx + 1}</span>
+                      {q.subject_code && (
+                        <span className="badge bg-purple-400/10 text-purple-400">
+                          {SUBJECT_LABELS[q.subject_code] || q.subject_code}
+                        </span>
+                      )}
                       {q.question_type && (
                         <span className="badge bg-accent/10 text-accent">
                           {TYPE_LABELS[q.question_type] || q.question_type}
@@ -532,7 +610,7 @@ export default function UploadPage() {
 
       {/* Duplicate file warning */}
       {dupWarning && pendingFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-bg-card border border-bg-border rounded-2xl w-full max-w-md shadow-2xl animate-slide-up">
             <div className="px-5 py-4 border-b border-bg-border flex items-center gap-2">
               <AlertTriangle size={16} className="text-warning" />
@@ -585,7 +663,7 @@ export default function UploadPage() {
 
       {/* Send to class dialog */}
       {sendDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-text">Gửi vào lớp</h2>

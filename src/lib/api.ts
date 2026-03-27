@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios'
 import type {
   AuthToken, LoginRequest, RegisterRequest, User,
+  Subject,
   DashboardStats, ChartData, Activity,
   Question, QuestionListResponse, QuestionFilters, QuestionUpdate,
   GenerateRequest, ExamGenerateRequest, PromptGenerateRequest, GenerateResponse, GeneratedQuestion,
@@ -74,7 +75,13 @@ export const authApi = {
   me: () =>
     api.get<User>('/auth/me').then(r => r.data),
 
-  logout: () => {
+  logout: async () => {
+    // Revoke token on server before clearing locally
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Ignore errors — clear local state regardless
+    }
     if (typeof window !== 'undefined') localStorage.removeItem('access_token')
   },
 }
@@ -94,10 +101,11 @@ export const dashboardApi = {
 // ─── Parser ───────────────────────────────────────────────────────────────────
 export const parserApi = {
   // POST /parser/parse
-  upload: (file: File, onProgress?: (pct: number) => void) => {
+  upload: (file: File, onProgress?: (pct: number) => void, subjectHint: string = 'toan') => {
     const form = new FormData()
     form.append('file', file)
-    return api.post<{ job_id: number; status: string; message: string }>('/parser/parse', form, {
+    return api.post<{ job_id: number; status: string; message: string }>(
+      `/parser/parse?subject_hint=${encodeURIComponent(subjectHint)}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (e: { loaded: number; total?: number }) => {
         if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100))
@@ -109,29 +117,46 @@ export const parserApi = {
   getStatus: (jobId: number) =>
     api.get<Exam>(`/parser/status/${jobId}`).then(r => r.data),
 
-  // GET /parser/stream/{job_id}?token=... (SSE)
+  // Request a one-time SSE token, then connect to SSE stream
   subscribeProgress: (jobId: number, onEvent: (data: ParseProgress) => void): () => void => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
-    const url = `${API_BASE}/parser/stream/${jobId}${token ? `?token=${token}` : ''}`
-    const es = new EventSource(url)
-    es.addEventListener('progress', (e: MessageEvent) => {
-      try { onEvent(JSON.parse(e.data)) } catch {}
-    })
-    es.addEventListener('complete', (e: MessageEvent) => {
-      try { onEvent({ ...JSON.parse(e.data), stage: 'done' }) } catch {}
-      es.close()
-    })
-    es.addEventListener('error_event', (e: MessageEvent) => {
-      try { onEvent({ ...JSON.parse(e.data), stage: 'error' }) } catch {}
-      es.close()
-    })
-    // stream_timeout means SSE timed out but parsing may still be running.
-    // Just close the SSE connection — polling fallback will detect completion.
-    es.addEventListener('stream_timeout', () => {
-      es.close()
-    })
-    es.onerror = () => es.close()
-    return () => es.close()
+    let es: EventSource | null = null
+    let cancelled = false
+
+    // Get one-time SSE token, fall back to JWT if endpoint unavailable
+    const connect = async () => {
+      let sseToken: string | null = null
+      try {
+        const res = await api.post<{ token: string }>(`/parser/stream-token/${jobId}`)
+        sseToken = res.data.token
+      } catch {
+        // Fallback: use JWT directly (backward compatible)
+        sseToken = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null
+      }
+      if (cancelled || !sseToken) return
+
+      const url = `${API_BASE}/parser/stream/${jobId}?token=${sseToken}`
+      es = new EventSource(url)
+      es.addEventListener('progress', (e: MessageEvent) => {
+        try { onEvent(JSON.parse(e.data)) } catch {}
+      })
+      es.addEventListener('complete', (e: MessageEvent) => {
+        try { onEvent({ ...JSON.parse(e.data), stage: 'done' }) } catch {}
+        es!.close()
+      })
+      es.addEventListener('error_event', (e: MessageEvent) => {
+        try { onEvent({ ...JSON.parse(e.data), stage: 'error' }) } catch {}
+        es!.close()
+      })
+      // stream_timeout means SSE timed out but parsing may still be running.
+      // Just close the SSE connection — polling fallback will detect completion.
+      es.addEventListener('stream_timeout', () => {
+        es!.close()
+      })
+      es.onerror = () => es!.close()
+    }
+
+    connect()
+    return () => { cancelled = true; es?.close() }
   },
 
   // GET /parser/history
@@ -153,6 +178,7 @@ export const parserApi = {
 export const questionsApi = {
   list: (params: {
     page?: number; page_size?: number
+    subject?: string
     type?: string; difficulty?: string
     grade?: number | string; chapter?: string; keyword?: string; exam_id?: number
     my_only?: boolean; visibility?: 'public' | 'private'
@@ -188,19 +214,22 @@ export const questionsApi = {
     api.post<GeneratedQuestion[]>('/questions/generate-similar', { question_ids: questionIds, count }).then(r => r.data),
 
   solve: (questionId: number) =>
-    api.post<{ answer: string; solution_steps: string[] }>(`/questions/${questionId}/solve`).then(r => r.data),
+    api.post<{ answer: string; solution_steps: string[] }>(`/questions/${questionId}/solve`, {}, { timeout: 120000 }).then(r => r.data),
 
-  findDuplicates: (threshold = 0.92) =>
+  findDuplicates: (threshold = 0.85) =>
     api.get<{
       groups: Array<{
         questions: Array<{
           id: number; question_text: string; question_type: string
           difficulty?: string; topic?: string; chapter?: string
-          grade?: number; answer?: string; created_at: string
+          grade?: number; answer?: string; created_at: string; exam_id?: number
         }>
         max_score: number
+        is_exact?: boolean
       }>
       total_groups: number
+      message?: string
+      embedding_status?: { total_questions: number; embedded: number }
     }>('/questions/duplicates', { params: { threshold } }).then(r => r.data),
 
   bulkDelete: (questionIds: number[]) =>
@@ -226,10 +255,16 @@ export const generatorApi = {
     api.post<{ exam_id: number; question_count: number }>('/generate/save-as-exam', { title, questions }).then(r => r.data),
 }
 
+// ─── Subjects ────────────────────────────────────────────────────────────────
+export const subjectsApi = {
+  list: (grade?: number) =>
+    api.get<Subject[]>('/subjects', { params: grade ? { grade } : {} }).then(r => r.data),
+}
+
 // ─── Curriculum ───────────────────────────────────────────────────────────────
 export const curriculumApi = {
-  getTree: () =>
-    api.get<CurriculumTree>('/curriculum/tree').then(r => r.data),
+  getTree: (subjectCode: string = 'toan') =>
+    api.get<CurriculumTree>('/curriculum/tree', { params: { subject_code: subjectCode } }).then(r => r.data),
 }
 
 // ─── Generator Export ─────────────────────────────────────────────────────────
@@ -382,13 +417,33 @@ export const gameApi = {
 
 // ─── Admin CMS ──────────────────────────────────────────────────────────────
 export const adminApi = {
-  getStats: () => api.get<{ total_users: number; total_questions: number; total_exams: number; active_users: number }>('/admin/stats').then(r => r.data),
+  getStats: () => api.get<{ total_users: number; total_questions: number; total_exams: number; active_users: number; duplicate_questions: number }>('/admin/stats').then(r => r.data),
   getUsers: (skip = 0, limit = 20, search?: string, role?: string) => api.get<{ total: number; items: User[] }>('/admin/users', { params: { skip, limit, ...(search ? { search } : {}), ...(role ? { role } : {}) } }).then(r => r.data),
   updateUser: (id: number, data: { role?: string; is_active?: boolean }) => api.patch<User>(`/admin/users/${id}`, data).then(r => r.data),
   getQuestions: (page = 1, pageSize = 20, search?: string) => api.get<{ total: number; items: Question[] }>('/admin/questions', { params: { page, page_size: pageSize, ...(search ? { search } : {}) } }).then(r => r.data),
   updateQuestion: (id: number, data: QuestionUpdate) => api.put<Question>(`/admin/questions/${id}`, data).then(r => r.data),
   deleteQuestion: (id: number) => api.delete(`/admin/questions/${id}`).then(r => r.data),
   bulkVisibility: (ids: number[], isPublic: boolean) => api.patch('/admin/questions/bulk-visibility', { question_ids: ids, is_public: isPublic }).then(r => r.data),
+
+  findDuplicates: (threshold = 0.85) =>
+    api.get<{
+      groups: Array<{
+        questions: Array<{
+          id: number; question_text: string; question_type: string
+          difficulty?: string; topic?: string; chapter?: string
+          grade?: number; answer?: string; created_at: string; exam_id?: number
+          author_email?: string
+        }>
+        max_score: number
+        is_exact?: boolean
+      }>
+      total_groups: number
+      message?: string
+      embedding_status?: { total_questions: number; embedded: number }
+    }>('/admin/questions/duplicates', { params: { threshold } }).then(r => r.data),
+
+  bulkDelete: (questionIds: number[]) =>
+    api.post<{ detail: string; deleted: number }>('/admin/questions/bulk-delete', { question_ids: questionIds }).then(r => r.data),
 }
 
 // ─── Analytics ───────────────────────────────────────────────────────────────

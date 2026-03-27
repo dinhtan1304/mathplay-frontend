@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { classesApi, getErrorMessage } from '@/lib/api'
 import type { ClassRoom, ClassCreate } from '@/types'
-import { formatDate, cn } from '@/lib/utils'
+import { formatDate, SUBJECT_LABELS, cn } from '@/lib/utils'
 import {
   Users, Plus, X, Loader2, Copy, Check, BookOpen,
   ChevronRight, GraduationCap, ClipboardList,
@@ -30,7 +30,7 @@ function CreateModal({ onCreated, onClose }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="card w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-bg-border flex items-center justify-between">
           <h3 className="font-semibold text-text">Tạo lớp học mới</h3>
@@ -51,13 +51,18 @@ function CreateModal({ onCreated, onClose }: {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-text-muted mb-1.5 block">Môn học</label>
-              <input value={form.subject || ''} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Toán" className="input" />
+              <select value={form.subject_code || ''} onChange={e => setForm(f => ({ ...f, subject_code: e.target.value || undefined }))} className="input">
+                <option value="">Chọn môn</option>
+                {Object.entries(SUBJECT_LABELS).map(([code, label]) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs text-text-muted mb-1.5 block">Khối lớp</label>
               <select value={form.grade || ''} onChange={e => setForm(f => ({ ...f, grade: Number(e.target.value) || undefined }))} className="input">
                 <option value="">Chọn lớp</option>
-                {[6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
+                {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
               </select>
             </div>
           </div>
@@ -99,7 +104,12 @@ function ClassCard({ cls }: { cls: ClassRoom }) {
       </div>
       <div className="mb-3">
         <div className="font-semibold text-text">{cls.name}</div>
-        {cls.subject && <div className="text-sm text-text-muted mt-0.5">{cls.subject}{cls.grade ? ` • Lớp ${cls.grade}` : ''}</div>}
+        {(cls.subject_code || cls.subject) && (
+          <div className="text-sm text-text-muted mt-0.5">
+            {cls.subject_code ? SUBJECT_LABELS[cls.subject_code] || cls.subject_code : cls.subject}
+            {cls.grade ? ` • Lớp ${cls.grade}` : ''}
+          </div>
+        )}
         {cls.description && <div className="text-xs text-text-dim mt-1 line-clamp-2">{cls.description}</div>}
       </div>
       <div className="flex items-center gap-4 text-xs text-text-muted border-t border-bg-border pt-3">

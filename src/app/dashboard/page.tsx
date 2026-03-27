@@ -20,22 +20,24 @@ function StatCard({ icon: Icon, label, value, sub, trend }: {
   sub?: string; trend?: number
 }) {
   return (
-    <div className="stat-card animate-slide-up">
+    <div className="stat-card animate-slide-up group hover:border-bg-border/80 transition-all duration-200">
       <div className="flex items-start justify-between">
-        <div className="p-2.5 rounded-lg bg-accent/10">
+        <div className="p-2.5 rounded-xl bg-accent/8 group-hover:bg-accent/12 transition-colors">
           <Icon size={18} className="text-accent" />
         </div>
         {trend !== undefined && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${trend >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-            {trend >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+          <div className={`flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+            trend >= 0 ? 'text-emerald-400 bg-emerald-400/10' : 'text-red-400 bg-red-400/10'
+          }`}>
+            {trend >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
             {Math.abs(trend)}%
           </div>
         )}
       </div>
       <div>
-        <div className="text-2xl font-bold text-text">{value}</div>
-        <div className="text-sm text-text-muted">{label}</div>
-        {sub && <div className="text-xs text-text-dim mt-0.5">{sub}</div>}
+        <div className="text-2xl font-bold text-text tracking-tight">{value}</div>
+        <div className="text-sm text-text-muted font-medium">{label}</div>
+        {sub && <div className="text-xs text-text-dim mt-1">{sub}</div>}
       </div>
     </div>
   )
@@ -148,8 +150,8 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-text">Dashboard</h1>
-          <p className="text-text-muted text-sm mt-1">Tổng quan hoạt động của bạn</p>
+          <h1 className="text-2xl font-bold text-text tracking-tight">Dashboard</h1>
+          <p className="text-text-dim text-sm mt-1">Tổng quan hoạt động</p>
         </div>
         {hasNoData && (
           <Link href="/upload" className="btn-primary flex items-center gap-2 text-sm">
@@ -259,7 +261,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
               <div className="grid grid-cols-2 gap-1 mt-2">
                 {diffData.map((d, i) => (
-                  <div key={d.name} className="flex items-center gap-1.5 text-xs text-text-muted">
+                  <div key={`${d.name}-${i}`} className="flex items-center gap-1.5 text-xs text-text-muted">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
                     {d.name}: {d.value}
                   </div>

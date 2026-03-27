@@ -8,7 +8,7 @@ import type {
   CurriculumChapter, CurriculumLesson,
   GeneratorExportRequest, VerificationStats, QuestionType, Difficulty, ClassRoom,
 } from '@/types'
-import { DIFFICULTY_LABELS, cn } from '@/lib/utils'
+import { DIFFICULTY_LABELS, SUBJECT_LABELS, cn } from '@/lib/utils'
 import { Wand2, Loader2, BookmarkPlus, Download, RefreshCw, ChevronDown, Info, ShieldCheck, AlertTriangle, Copy, MessageSquare, Send, X, Pencil, Check } from 'lucide-react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
@@ -242,6 +242,7 @@ export default function GeneratePage() {
   const [promptCount, setPromptCount] = useState(10)
 
   // Shared
+  const [subjectCode, setSubjectCode] = useState('toan')
   const [topic, setTopic] = useState('')
   const [scope, setScope] = useState('chapter')
   const [target, setTarget] = useState('dattra')
@@ -278,9 +279,11 @@ export default function GeneratePage() {
   const [exportLoading, setExportLoading] = useState<string | null>(null)
 
   useEffect(() => {
-    curriculumApi.getTree().then(setCurriculumTree).catch(() => {})
+    curriculumApi.getTree(subjectCode).then(setCurriculumTree).catch(() => {})
     questionsApi.getFilters().then(() => setTopicOptions([])).catch(() => {})
-  }, [])
+    // Reset curriculum selections when subject changes
+    setGrade(null); setChapters([]); setChapterNo(''); setLessons([]); setLessonId(''); setTopic(''); setBankCount(null)
+  }, [subjectCode])
 
   useEffect(() => {
     const p = DIFF_PRESETS[diffPreset]
@@ -360,15 +363,17 @@ export default function GeneratePage() {
       if (mode === 'prompt') {
         res = await generatorApi.generateFromPrompt({
           prompt: promptText.trim(),
+          subject_code: subjectCode || undefined,
           grade: grade || undefined,
           count: promptCount || undefined,
         })
       } else if (mode === 'exam') {
         const sections = buildSections()
         if (!sections.length) throw new Error('Chưa cấu hình số câu')
-        res = await generatorApi.generateExam({ topic: ctx, sections })
+        res = await generatorApi.generateExam({ topic: ctx, sections, subject_code: subjectCode || undefined })
       } else {
         res = await generatorApi.generate({
+          subject_code: subjectCode || undefined,
           question_type: singleType || undefined,
           topic: ctx || undefined,
           difficulty: singleDiff || undefined,
@@ -390,6 +395,7 @@ export default function GeneratePage() {
       const questions = result.questions.map(q => ({
         question_text: q.question || '',
         question_type: (q.type || 'TN') as QuestionType,
+        subject_code: q.subject_code || subjectCode || undefined,
         topic: q.topic || '',
         difficulty: (q.difficulty || 'TH') as Difficulty,
         grade: grade || undefined,
@@ -442,7 +448,7 @@ export default function GeneratePage() {
         question: q.question, type: q.type, topic: q.topic,
         difficulty: q.difficulty, answer: q.answer, solution_steps: q.solution_steps,
       })),
-      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : 'ĐỀ THI TOÁN HỌC',
+      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : `ĐỀ THI ${(SUBJECT_LABELS[subjectCode] || 'TOÁN').toUpperCase()}`,
       subtitle: topic || '',
       include_answers: previewAnswers,
       include_solutions: previewSolutions,
@@ -478,7 +484,7 @@ export default function GeneratePage() {
         question: q.question, type: q.type, topic: q.topic,
         difficulty: q.difficulty, answer: q.answer, solution_steps: q.solution_steps,
       })),
-      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : 'ĐỀ THI TOÁN HỌC',
+      title: mode === 'exam' ? 'ĐỀ KIỂM TRA' : `ĐỀ THI ${(SUBJECT_LABELS[subjectCode] || 'TOÁN').toUpperCase()}`,
       subtitle: topic || '',
       include_answers: previewAnswers,
       include_solutions: previewSolutions,
@@ -510,12 +516,12 @@ export default function GeneratePage() {
     : {}
 
   return (
-    <div className="p-5 flex flex-col gap-4 animate-fade-in">
+    <div className="p-4 flex flex-col gap-3 animate-fade-in xl:h-full">
 
       {/* ── Header ── */}
       <div>
-        <h1 className="text-2xl font-bold text-text">Sinh đề AI</h1>
-        <p className="text-text-muted text-sm mt-1">
+        <h1 className="text-xl font-bold text-text">Sinh đề AI</h1>
+        <p className="text-text-dim text-xs mt-1">
           AI tham khảo ngân hàng câu hỏi của bạn để tạo câu tương tự
         </p>
       </div>
@@ -577,9 +583,17 @@ export default function GeneratePage() {
           <div className="card p-4 space-y-3">
             <SectionLabel>Chương trình học</SectionLabel>
             <div>
+              <div className="text-xs text-text-muted mb-1.5">Môn học</div>
+              <select value={subjectCode} onChange={e => setSubjectCode(e.target.value)} className="input text-sm">
+                {Object.entries(SUBJECT_LABELS).map(([code, label]) => (
+                  <option key={code} value={code}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
               <div className="text-xs text-text-muted mb-1.5">Khối lớp</div>
               <div className="flex flex-wrap gap-1.5">
-                {[6,7,8,9,10,11,12].map(g => (
+                {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => (
                   <button key={g} onClick={() => handleGradeSelect(g)}
                     className={cn('w-9 h-9 rounded-lg text-sm font-medium transition-colors',
                       grade === g ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text')}>
@@ -720,7 +734,7 @@ export default function GeneratePage() {
                   <div className="text-xs text-text-muted mb-1.5">Lớp (tuỳ chọn)</div>
                   <select value={grade ?? ''} onChange={e => e.target.value ? handleGradeSelect(Number(e.target.value)) : setGrade(null as any)} className="input text-sm">
                     <option value="">AI tự nhận diện</option>
-                    {[6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
+                    {[1,2,3,4,5,6,7,8,9,10,11,12].map(g => <option key={g} value={g}>Lớp {g}</option>)}
                   </select>
                 </div>
               </>
@@ -816,7 +830,7 @@ export default function GeneratePage() {
         <div>
           <button onClick={handleGenerate}
             disabled={generating || (mode === 'exam' && diffTotal !== 100) || (mode === 'prompt' && !promptText.trim())}
-            className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-base">
+            className="btn-primary w-full flex items-center justify-center gap-2 py-2.5 text-sm">
             {generating
               ? <><Loader2 size={16} className="animate-spin" />Đang sinh đề...</>
               : <><Wand2 size={16} />{mode === 'prompt' ? 'Sinh đề từ prompt' : 'Sinh đề AI'}</>}
@@ -836,21 +850,21 @@ export default function GeneratePage() {
         {/* Left: Question list */}
         <div className="flex flex-col gap-3">
           {!result && !generating && !error && (
-            <div className="card flex items-center justify-center py-24">
+            <div className="card flex items-center justify-center py-16">
               <div className="text-center">
-                <Wand2 size={40} className="text-text-dim mx-auto mb-3" />
-                <div className="text-text-muted">Cấu hình và nhấn "Sinh đề AI"</div>
-                <div className="text-text-dim text-sm mt-1">AI tham khảo ngân hàng câu hỏi của bạn</div>
+                <Wand2 size={36} className="text-text-dim mx-auto mb-3" />
+                <div className="text-text-muted text-sm">Cấu hình và nhấn "Sinh đề AI"</div>
+                <div className="text-text-dim text-xs mt-1">AI tham khảo ngân hàng câu hỏi của bạn</div>
               </div>
             </div>
           )}
 
           {generating && (
-            <div className="card p-12 flex items-center justify-center">
+            <div className="card p-10 flex items-center justify-center">
               <div className="text-center space-y-3">
-                <div className="w-12 h-12 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
-                <div className="text-text-muted">AI đang sinh câu hỏi...</div>
-                {grade && <div className="text-text-dim text-sm">Lớp {grade} · {topic || 'Toán học'}</div>}
+                <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+                <div className="text-text-muted text-sm">AI đang sinh câu hỏi...</div>
+                {grade && <div className="text-text-dim text-xs">Lớp {grade} · {topic || 'Toán học'}</div>}
               </div>
             </div>
           )}
@@ -862,36 +876,37 @@ export default function GeneratePage() {
           {result && (
             <>
               {/* Toolbar */}
-              <div className="card p-4 flex items-center gap-3 flex-wrap">
-                <div>
-                  <div className="font-semibold text-text">
+              <div className="card px-4 py-2.5 space-y-2 shrink-0">
+                {/* Row 1: Info */}
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <span className="font-semibold text-text text-sm whitespace-nowrap">
                     {result.questions.length} câu hỏi
-                    {result.sample_count > 0 && (
-                      <span className="text-text-muted text-sm font-normal ml-2">
-                        (tham khảo {result.sample_count} câu mẫu)
-                      </span>
-                    )}
-                  </div>
+                  </span>
+                  {result.sample_count > 0 && (
+                    <span className="text-text-dim text-xs whitespace-nowrap">
+                      ({result.sample_count} mẫu)
+                    </span>
+                  )}
                   {result.verification && (
-                    <div className="flex items-center gap-3 mt-1">
+                    <>
                       <span className="text-xs text-green-400 flex items-center gap-1">
-                        <ShieldCheck size={11} /> {result.verification.correct} đúng
+                        <ShieldCheck size={11} /> {result.verification.correct}
                       </span>
                       {result.verification.fixed > 0 && (
                         <span className="text-xs text-orange-400 flex items-center gap-1">
-                          <AlertTriangle size={11} /> {result.verification.fixed} đã sửa
+                          <AlertTriangle size={11} /> {result.verification.fixed} sửa
                         </span>
                       )}
                       {result.verification.removed > 0 && (
-                        <span className="text-xs text-red-400">{result.verification.removed} loại bỏ</span>
+                        <span className="text-xs text-red-400">{result.verification.removed} loại</span>
                       )}
                       {result.verification.ambiguous > 0 && (
-                        <span className="text-xs text-yellow-500">{result.verification.ambiguous} cần kiểm tra</span>
+                        <span className="text-xs text-yellow-500">{result.verification.ambiguous} ?</span>
                       )}
-                    </div>
+                    </>
                   )}
                   {result.criteria && mode === 'prompt' && (
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <>
                       {result.criteria.grade && (
                         <span className="badge bg-accent/10 text-accent text-[10px]">Lớp {result.criteria.grade}</span>
                       )}
@@ -901,36 +916,38 @@ export default function GeneratePage() {
                       {result.criteria.difficulty_mix && Object.entries(result.criteria.difficulty_mix).map(([d, n]) => (
                         <span key={d} className="text-[10px]" style={{ color: DIFF_COLORS[d] }}>{n}×{d}</span>
                       ))}
-                    </div>
+                    </>
                   )}
-                  {savedMsg && <div className="text-xs text-green-400 mt-0.5">{savedMsg}</div>}
+                  {savedMsg && <span className="text-xs text-green-400 ml-auto">{savedMsg}</span>}
                 </div>
-                <div className="flex items-center gap-2 ml-auto flex-wrap">
-                  <button onClick={handleGenerate} className="btn-ghost text-sm flex items-center gap-1.5">
-                    <RefreshCw size={13} /> Tạo lại
+                {/* Row 2: Actions */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button onClick={handleGenerate} className="btn-ghost text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    <RefreshCw size={12} /> Tạo lại
                   </button>
                   <button onClick={handleSaveToBank} disabled={saving}
-                    className="btn-ghost text-sm flex items-center gap-1.5">
-                    {saving ? <Loader2 size={13} className="animate-spin" /> : <BookmarkPlus size={13} />}
-                    Lưu vào ngân hàng
+                    className="btn-ghost text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : <BookmarkPlus size={12} />}
+                    Lưu
                   </button>
                   <button onClick={openSendDialog}
-                    className="btn-primary text-sm flex items-center gap-1.5 py-1.5">
-                    <Send size={13} /> Gửi vào lớp
+                    className="btn-primary text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    <Send size={12} /> Gửi lớp
                   </button>
+                  <div className="border-l border-bg-border h-4 mx-1" />
                   <button onClick={() => handleExport('docx')} disabled={!!exportLoading}
-                    className="btn-primary text-sm flex items-center gap-1.5 py-1.5">
-                    {exportLoading === 'docx' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    className="btn-primary text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    {exportLoading === 'docx' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                     DOCX
                   </button>
                   <button onClick={() => handleExport('pdf')} disabled={!!exportLoading}
-                    className="btn-ghost text-sm flex items-center gap-1.5 py-1.5">
-                    {exportLoading === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    className="btn-ghost text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    {exportLoading === 'pdf' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                     PDF
                   </button>
                   <button onClick={() => handleExport('latex')} disabled={!!exportLoading}
-                    className="btn-ghost text-sm flex items-center gap-1.5 py-1.5">
-                    {exportLoading === 'latex' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+                    className="btn-ghost text-xs flex items-center gap-1.5 px-2.5 py-1.5">
+                    {exportLoading === 'latex' ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                     LaTeX
                   </button>
                 </div>
@@ -938,7 +955,7 @@ export default function GeneratePage() {
 
               {/* Question list */}
               <div className="card overflow-hidden">
-                <div className="max-h-[calc(100vh-500px)] overflow-y-auto min-h-[200px]">
+                <div className="max-h-[calc(100vh-320px)] overflow-y-auto min-h-[300px]">
                   {mode === 'exam'
                     ? Object.entries(grouped).map(([diff, qs]) => (
                         <div key={diff}>
@@ -968,19 +985,19 @@ export default function GeneratePage() {
         {/* Right: PDF Preview */}
         <div className="flex flex-col">
           {!result && !generating && (
-            <div className="card flex items-center justify-center py-24 flex-1">
+            <div className="card flex items-center justify-center py-16">
               <div className="text-center">
-                <Copy size={36} className="text-text-dim mx-auto mb-3" />
+                <Copy size={32} className="text-text-dim mx-auto mb-3" />
                 <div className="text-text-dim text-sm">Xem trước đề sẽ hiển thị ở đây</div>
               </div>
             </div>
           )}
 
           {generating && (
-            <div className="card flex items-center justify-center py-24 flex-1">
+            <div className="card flex items-center justify-center py-16">
               <div className="text-center space-y-2">
                 <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin mx-auto" />
-                <div className="text-text-dim text-sm">Đang tạo xem trước...</div>
+                <div className="text-text-dim text-xs">Đang tạo xem trước...</div>
               </div>
             </div>
           )}
@@ -1001,7 +1018,7 @@ export default function GeneratePage() {
                 </label>
               </div>
               {previewHtml
-                ? <iframe srcDoc={previewHtml} className="w-full border-0" style={{ height: 'calc(100vh - 460px)', minHeight: 400 }} title="PDF Preview" />
+                ? <iframe srcDoc={previewHtml} className="w-full border-0 flex-1" style={{ height: 'calc(100vh - 320px)', minHeight: 650 }} title="PDF Preview" />
                 : (
                   <div className="flex items-center justify-center py-16">
                     <div className="text-center space-y-2">
@@ -1018,7 +1035,7 @@ export default function GeneratePage() {
 
       {/* ── Send to class dialog ── */}
       {sendDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-text">Gửi vào lớp</h2>
