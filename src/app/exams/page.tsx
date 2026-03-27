@@ -533,29 +533,30 @@ export default function ExamsPage() {
           </div>
         )}
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-6">
-            <span className="text-sm text-text-muted">Trang <span className="text-text font-medium">{page}</span> / {totalPages}</span>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="w-8 h-8 rounded-lg btn-ghost disabled:opacity-40 flex items-center justify-center p-0"
-              >
-                <ChevronLeft size={15} />
-              </button>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="w-8 h-8 rounded-lg btn-ghost disabled:opacity-40 flex items-center justify-center p-0"
-              >
-                <ChevronRight size={15} />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* Pagination — outside scroll container so always visible */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-3 border-t border-bg-border shrink-0">
+          <span className="text-sm text-text-muted">Trang <span className="text-text font-medium">{page}</span> / {totalPages}</span>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="w-8 h-8 rounded-lg btn-ghost disabled:opacity-40 flex items-center justify-center p-0"
+            >
+              <ChevronLeft size={15} />
+            </button>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="w-8 h-8 rounded-lg btn-ghost disabled:opacity-40 flex items-center justify-center p-0"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

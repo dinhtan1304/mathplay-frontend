@@ -429,7 +429,7 @@ export default function GenerateSimilarModal({
 
       {/* Send to class sub-dialog */}
       {sendOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" onClick={() => setSendOpen(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setSendOpen(false)}>
           <div className="bg-bg-card border border-bg-border rounded-2xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-text">Gửi vào lớp</h3>

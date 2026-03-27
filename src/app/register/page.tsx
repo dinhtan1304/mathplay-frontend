@@ -34,23 +34,24 @@ export default function RegisterPage() {
     }
   }
 
-  const passwordStrength = form.password.length >= 8 && /[A-Za-z]/.test(form.password) && /[0-9]/.test(form.password)
-
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex w-14 h-14 rounded-2xl bg-accent items-center justify-center mb-4">
-            <Sigma size={28} className="text-white" />
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.08)_0%,transparent_50%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(139,92,246,0.05)_0%,transparent_50%)]" />
+
+      <div className="w-full max-w-[420px] relative z-10">
+        <div className="text-center mb-10">
+          <div className="inline-flex w-16 h-16 rounded-2xl bg-gradient-to-br from-accent to-purple-500 items-center justify-center mb-5 shadow-glow">
+            <Sigma size={30} className="text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-text">Tạo tài khoản giáo viên</h1>
-          <p className="text-text-muted text-sm mt-1">Miễn phí · Không cần thẻ tín dụng</p>
+          <h1 className="text-2xl font-bold text-text tracking-tight">Tạo tài khoản giáo viên</h1>
+          <p className="text-text-dim text-sm mt-2">Miễn phí, không cần thẻ tín dụng</p>
         </div>
 
-        <div className="card p-6 animate-slide-up">
-          <form onSubmit={submit} className="space-y-4">
+        <div className="card p-7 animate-slide-up">
+          <form onSubmit={submit} className="space-y-5">
             <div>
-              <label className="text-sm text-text-muted mb-1.5 block">Họ và tên</label>
+              <label className="text-xs font-semibold text-text-muted mb-2 block uppercase tracking-wider">Họ và tên</label>
               <input
                 value={form.full_name}
                 onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
@@ -60,7 +61,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="text-sm text-text-muted mb-1.5 block">Email *</label>
+              <label className="text-xs font-semibold text-text-muted mb-2 block uppercase tracking-wider">Email *</label>
               <input
                 type="email" value={form.email}
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
@@ -70,7 +71,7 @@ export default function RegisterPage() {
               />
             </div>
             <div>
-              <label className="text-sm text-text-muted mb-1.5 block">Mật khẩu *</label>
+              <label className="text-xs font-semibold text-text-muted mb-2 block uppercase tracking-wider">Mật khẩu *</label>
               <div className="relative">
                 <input
                   type={showPw ? 'text' : 'password'}
@@ -80,19 +81,19 @@ export default function RegisterPage() {
                   className="input pr-10"
                 />
                 <button type="button" onClick={() => setShowPw(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-dim hover:text-text transition-colors">
                   {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {form.password && (
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2.5 flex gap-3">
                   {[
                     { label: '8+ ký tự', ok: form.password.length >= 8 },
                     { label: 'Chữ cái', ok: /[A-Za-z]/.test(form.password) },
                     { label: 'Số', ok: /[0-9]/.test(form.password) },
                   ].map(c => (
-                    <div key={c.label} className={`flex items-center gap-1 text-xs ${c.ok ? 'text-green-400' : 'text-text-dim'}`}>
-                      {c.ok ? <Check size={10} /> : <div className="w-2.5 h-2.5 rounded-full border border-text-dim" />}
+                    <div key={c.label} className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${c.ok ? 'text-emerald-400' : 'text-text-dim/50'}`}>
+                      {c.ok ? <Check size={12} /> : <div className="w-3 h-3 rounded-full border border-text-dim/30" />}
                       {c.label}
                     </div>
                   ))}
@@ -100,7 +101,7 @@ export default function RegisterPage() {
               )}
             </div>
             <div>
-              <label className="text-sm text-text-muted mb-1.5 block">Xác nhận mật khẩu *</label>
+              <label className="text-xs font-semibold text-text-muted mb-2 block uppercase tracking-wider">Xác nhận mật khẩu *</label>
               <input
                 type={showPw ? 'text' : 'password'}
                 value={form.confirm}
@@ -111,18 +112,18 @@ export default function RegisterPage() {
             </div>
 
             {error && (
-              <div className="text-sm text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">{error}</div>
+              <div className="text-sm text-red-400 bg-red-400/10 border border-red-400/20 px-3.5 py-2.5 rounded-xl">{error}</div>
             )}
 
-            <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+            <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2 py-2.5">
               {loading ? <Loader2 size={16} className="animate-spin" /> : null}
               {loading ? 'Đang tạo tài khoản...' : 'Tạo tài khoản'}
             </button>
           </form>
 
-          <div className="mt-4 text-center text-sm text-text-muted">
+          <div className="mt-5 text-center text-sm text-text-dim">
             Đã có tài khoản?{' '}
-            <Link href="/login" className="text-accent hover:text-accent-hover transition-colors">
+            <Link href="/login" className="text-accent hover:text-accent-hover font-medium transition-colors">
               Đăng nhập
             </Link>
           </div>

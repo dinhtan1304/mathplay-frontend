@@ -43,6 +43,17 @@ export const TYPE_LABELS: Record<string, string> = {
   TN: 'Trắc nghiệm', TL: 'Tự luận',
 }
 
+export const SUBJECT_LABELS: Record<string, string> = {
+  'toan': 'Toán', 'tieng-viet': 'Tiếng Việt', 'ngu-van': 'Ngữ văn', 'tieng-anh': 'Tiếng Anh',
+  'tnxh': 'TN&XH', 'khoa-hoc': 'Khoa học', 'khtn': 'KHTN',
+  'vat-li': 'Vật lí', 'hoa-hoc': 'Hóa học', 'sinh-hoc': 'Sinh học',
+  'ls-dl': 'LS&ĐL', 'lich-su': 'Lịch sử', 'dia-li': 'Địa lí',
+  'dao-duc': 'Đạo đức', 'gdcd': 'GDCD', 'gdktpl': 'KT&PL',
+  'tin-hoc': 'Tin học', 'cong-nghe': 'Công nghệ',
+  'gdtc': 'GDTC', 'am-nhac': 'Âm nhạc', 'my-thuat': 'Mỹ thuật',
+  'hdtn': 'HĐTN', 'gdqpan': 'QP-AN',
+}
+
 export const GAME_MODE_LABELS: Record<string, string> = {
   multiple_choice: 'Trắc nghiệm',
   drag_drop: 'Kéo thả',

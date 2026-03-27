@@ -12,12 +12,27 @@ export interface LoginRequest { email: string; password: string }
 export interface RegisterRequest { email: string; password: string; full_name?: string; role?: 'student' | 'teacher' }
 export interface AuthToken { access_token: string; token_type: string }
 
+// ─── Subject ──────────────────────────────────────────────────────────────────
+export interface Subject {
+  subject_code: string
+  name_vi: string
+  name_short: string
+  name_en?: string
+  category: 'bat_buoc' | 'lua_chon' | 'tich_hop'
+  grade_min: number
+  grade_max: number
+  parent_code?: string | null
+  display_order: number
+  icon?: string | null
+}
+
 // ─── Exam & Parser ────────────────────────────────────────────────────────────
 export type ExamStatus = 'pending' | 'processing' | 'completed' | 'failed'
 
 export interface Exam {
   id: number
   filename: string
+  subject_code?: string
   status: ExamStatus
   created_at: string
   question_count?: number
@@ -44,6 +59,7 @@ export type Difficulty = 'NB' | 'TH' | 'VD' | 'VDC'
 export interface Question {
   id: number
   question_text: string
+  subject_code?: string
   question_type: QuestionType
   difficulty?: Difficulty
   topic?: string
@@ -56,6 +72,7 @@ export interface Question {
   exam_id?: number
   user_id: number
   is_public: boolean
+  is_bank_duplicate?: boolean
   author_email?: string
   created_at: string
 }
@@ -68,6 +85,7 @@ export interface QuestionListResponse {
 }
 
 export interface QuestionFilters {
+  subjects: string[]
   types: string[]
   difficulties: string[]
   grades: number[]
@@ -77,6 +95,7 @@ export interface QuestionFilters {
 
 export interface QuestionUpdate {
   question_text?: string
+  subject_code?: string
   question_type?: QuestionType
   difficulty?: Difficulty
   topic?: string
@@ -117,6 +136,7 @@ export interface Activity {
 
 // ─── Generator ───────────────────────────────────────────────────────────────
 export interface GenerateRequest {
+  subject_code?: string
   question_type?: string | null
   topic?: string | null
   difficulty?: string | null
@@ -131,11 +151,13 @@ export interface ExamSection {
 export interface ExamGenerateRequest {
   topic?: string | null
   question_type?: string | null
+  subject_code?: string | null
   sections: ExamSection[]
 }
 
 export interface PromptGenerateRequest {
   prompt: string
+  subject_code?: string | null
   grade?: number | null
   count?: number | null
 }
@@ -143,6 +165,7 @@ export interface PromptGenerateRequest {
 export interface GeneratedQuestion {
   question: string
   type: string
+  subject_code?: string
   topic: string
   difficulty: string
   grade?: number | null
@@ -272,6 +295,7 @@ export interface ClassRoom {
   id: number
   name: string
   subject?: string
+  subject_code?: string
   grade?: number
   description?: string
   code: string
@@ -284,6 +308,7 @@ export interface ClassRoom {
 export interface ClassCreate {
   name: string
   subject?: string
+  subject_code?: string
   grade?: number
   description?: string
 }

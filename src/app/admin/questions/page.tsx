@@ -1,8 +1,8 @@
 'use client'
-import { useEffect, useState } from 'react'
-import { adminApi, curriculumApi } from '@/lib/api'
+import { useEffect, useMemo, useState } from 'react'
+import { adminApi, curriculumApi, getErrorMessage } from '@/lib/api'
 import type { Question, QuestionUpdate, CurriculumTree, CurriculumChapter } from '@/types'
-import { Trash2, Loader2, Database, AlertTriangle, Check, X, CheckSquare, Square, Eye, EyeOff, Pencil, Globe, Lock, Search } from 'lucide-react'
+import { Trash2, Loader2, Database, AlertTriangle, Check, X, CheckSquare, Square, Eye, EyeOff, Pencil, Globe, Lock, Search, ScanSearch } from 'lucide-react'
 import { TYPE_LABELS, DIFFICULTY_LABELS, DIFFICULTY_COLORS, formatDateTime, cn } from '@/lib/utils'
 import { MathText } from '@/lib/math'
 
@@ -161,7 +161,19 @@ export default function AdminQuestionsPage() {
   const [bulkAction, setBulkAction] = useState(false)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  
+
+  // Duplicate detection modal
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false)
+  const [duplicateGroups, setDuplicateGroups] = useState<Array<{
+    questions: Array<{ id: number; question_text: string; question_type: string; difficulty?: string; answer?: string; created_at: string; exam_id?: number; author_email?: string }>
+    max_score: number
+    is_exact?: boolean
+  }>>([])
+  const [dupLoading, setDupLoading] = useState(false)
+  const [dupSelectedIds, setDupSelectedIds] = useState<Set<number>>(new Set())
+  const [dupBulkDeleting, setDupBulkDeleting] = useState(false)
+  const [dupError, setDupError] = useState('')
+
   const pageSize = 20
 
   useEffect(() => {
@@ -235,12 +247,189 @@ export default function AdminQuestionsPage() {
     }
   }
 
+  // ── Duplicate detection handlers ──
+  const handleFindDuplicates = async () => {
+    setDupLoading(true); setDupError(''); setDuplicateGroups([]); setDupSelectedIds(new Set())
+    try {
+      const res = await adminApi.findDuplicates(0.85)
+      if (res.message) { setDupError(res.message); return }
+      setDuplicateGroups(res.groups)
+      setShowDuplicateModal(true)
+    } catch (e) { setDupError(getErrorMessage(e)) } finally { setDupLoading(false) }
+  }
+
+  const handleDeleteDuplicate = async (id: number, groupIdx: number) => {
+    try {
+      await adminApi.deleteQuestion(id)
+      setDuplicateGroups(prev => {
+        const updated = [...prev]
+        updated[groupIdx] = { ...updated[groupIdx], questions: updated[groupIdx].questions.filter(q => q.id !== id) }
+        return updated.filter(g => g.questions.length >= 2)
+      })
+      setDupSelectedIds(prev => { const next = new Set(prev); next.delete(id); return next })
+      setQuestions(qs => qs.filter(q => q.id !== id))
+      setTotal(t => t - 1)
+    } catch (e) { setDupError(getErrorMessage(e)) }
+  }
+
+  const dupTotalQuestions = useMemo(
+    () => duplicateGroups.reduce((sum, g) => sum + g.questions.length, 0),
+    [duplicateGroups]
+  )
+
+  const toggleDupSelect = (id: number) => {
+    setDupSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+  }
+  const toggleDupGroupSelect = (groupIdx: number) => {
+    const group = duplicateGroups[groupIdx]
+    if (!group) return
+    const groupIds = group.questions.map(q => q.id)
+    setDupSelectedIds(prev => {
+      const next = new Set(prev)
+      const allSel = groupIds.every(id => next.has(id))
+      if (allSel) groupIds.forEach(id => next.delete(id)); else groupIds.forEach(id => next.add(id))
+      return next
+    })
+  }
+  const toggleDupSelectAll = () => {
+    setDupSelectedIds(prev => {
+      const allIds = duplicateGroups.flatMap(g => g.questions.map(q => q.id))
+      return allIds.length > 0 && allIds.every(id => prev.has(id)) ? new Set() : new Set(allIds)
+    })
+  }
+  const handleBulkDeleteDuplicates = async () => {
+    if (dupSelectedIds.size === 0) return
+    setDupBulkDeleting(true); setDupError('')
+    try {
+      const ids = Array.from(dupSelectedIds)
+      await adminApi.bulkDelete(ids)
+      const deletedSet = new Set(ids)
+      setDuplicateGroups(prev =>
+        prev.map(g => ({ ...g, questions: g.questions.filter(q => !deletedSet.has(q.id)) }))
+            .filter(g => g.questions.length >= 2)
+      )
+      setDupSelectedIds(new Set())
+      setQuestions(qs => qs.filter(q => !deletedSet.has(q.id)))
+      setTotal(t => t - ids.length)
+    } catch (e) { setDupError(getErrorMessage(e)) } finally { setDupBulkDeleting(false) }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
   const allSelected = selectedIds.size === questions.length && questions.length > 0
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {editingQ && <EditModal q={editingQ} onSave={handleUpdate} onClose={() => setEditingQ(null)} />}
+
+      {/* ─── Duplicate Detection Modal ────────────────────────────────────── */}
+      {showDuplicateModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-bg-card border border-bg-border rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl">
+            <div className="px-5 py-4 border-b border-bg-border flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-semibold text-text flex items-center gap-2"><ScanSearch size={15} className="text-accent" /> Kiểm tra câu trùng lặp</h3>
+                <p className="text-xs text-text-dim mt-0.5">
+                  {duplicateGroups.length} nhóm · {dupTotalQuestions} câu tương đồng ≥ 85%
+                </p>
+              </div>
+              <button onClick={() => setShowDuplicateModal(false)} className="w-7 h-7 rounded-lg hover:bg-bg-hover flex items-center justify-center text-text-dim">
+                <X size={14} />
+              </button>
+            </div>
+            {/* Bulk action bar */}
+            {duplicateGroups.length > 0 && (
+              <div className="px-4 py-2.5 border-b border-bg-border flex items-center gap-3 flex-shrink-0 bg-bg-hover/20">
+                <button onClick={toggleDupSelectAll} className="text-text-muted hover:text-text transition-colors" title="Chọn tất cả">
+                  {dupTotalQuestions > 0 && dupSelectedIds.size === dupTotalQuestions
+                    ? <CheckSquare size={15} className="text-accent" />
+                    : <Square size={15} />}
+                </button>
+                <span className="text-xs text-text-dim">
+                  {dupSelectedIds.size > 0 ? `Đã chọn ${dupSelectedIds.size} câu` : 'Chọn tất cả'}
+                </span>
+                {dupSelectedIds.size > 0 && (
+                  <button
+                    onClick={handleBulkDeleteDuplicates}
+                    disabled={dupBulkDeleting}
+                    className="ml-auto flex items-center gap-1.5 text-xs text-red-400 hover:bg-red-400/10 px-3 py-1.5 rounded-lg transition-colors border border-red-400/20 disabled:opacity-50"
+                  >
+                    {dupBulkDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    Xóa {dupSelectedIds.size} câu đã chọn
+                  </button>
+                )}
+              </div>
+            )}
+            {dupError && (
+              <div className="px-4 py-2 bg-red-500/10 text-red-400 text-xs border-b border-bg-border flex items-center gap-2">
+                <AlertTriangle size={12} /> {dupError}
+                <button onClick={() => setDupError('')} className="ml-auto"><X size={11} /></button>
+              </div>
+            )}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+              {duplicateGroups.length === 0 ? (
+                <div className="py-16 text-center">
+                  <Check size={32} className="text-green-400 mx-auto mb-3" />
+                  <p className="text-text-muted font-medium">Không phát hiện câu trùng lặp</p>
+                  <p className="text-text-dim text-sm mt-1">Ngân hàng câu hỏi sạch sẽ!</p>
+                </div>
+              ) : duplicateGroups.map((group, gi) => {
+                const groupIds = group.questions.map(q => q.id)
+                const groupAllSelected = groupIds.every(id => dupSelectedIds.has(id))
+                return (
+                <div key={gi} className="border border-bg-border rounded-xl overflow-hidden">
+                  <div className="px-4 py-2 bg-bg-hover/30 flex items-center gap-3">
+                    <button onClick={() => toggleDupGroupSelect(gi)} className="text-text-muted hover:text-text transition-colors" title="Chọn cả nhóm">
+                      {groupAllSelected ? <CheckSquare size={14} className="text-accent" /> : <Square size={14} />}
+                    </button>
+                    <span className="text-xs font-medium text-text-muted flex items-center gap-2 flex-1">
+                      Nhóm {gi + 1} · {group.questions.length} câu · {(group.max_score * 100).toFixed(0)}%
+                      {group.max_score >= 1.0 && (
+                        <span className="text-[10px] font-semibold text-red-400 bg-red-400/15 px-1.5 py-0.5 rounded">Trùng y hệt</span>
+                      )}
+                    </span>
+                    <div className="w-16 h-1.5 rounded-full bg-bg-border overflow-hidden">
+                      <div className={`h-full rounded-full ${group.max_score >= 1.0 ? 'bg-red-400' : 'bg-orange-400'}`} style={{ width: `${group.max_score * 100}%` }} />
+                    </div>
+                  </div>
+                  <div className="divide-y divide-bg-border">
+                    {group.questions.map((q) => (
+                      <div key={q.id} className="p-4 flex items-start gap-3">
+                        <button onClick={() => toggleDupSelect(q.id)} className="mt-0.5 text-text-muted hover:text-text transition-colors flex-shrink-0">
+                          {dupSelectedIds.has(q.id) ? <CheckSquare size={14} className="text-accent" /> : <Square size={14} />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="text-[10px] text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">#{q.id}</span>
+                            {q.question_type && <span className="text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded">{TYPE_LABELS[q.question_type] || q.question_type}</span>}
+                            {q.difficulty && (
+                              <span className={cn('text-[10px] px-1.5 py-0.5 rounded', DIFFICULTY_COLORS[q.difficulty])}>
+                                {DIFFICULTY_LABELS[q.difficulty]}
+                              </span>
+                            )}
+                            {q.author_email && (
+                              <span className="text-[10px] text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{q.author_email.split('@')[0]}</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-text line-clamp-3"><MathText text={q.question_text} /></p>
+                          {q.answer && <p className="text-xs text-text-dim mt-1">Đáp án: <span className="text-green-400">{q.answer}</span></p>}
+                        </div>
+                        <button
+                          onClick={() => handleDeleteDuplicate(q.id, gi)}
+                          className="flex-shrink-0 flex items-center gap-1 text-[10px] text-red-400 hover:bg-red-400/10 px-2.5 py-1.5 rounded-lg transition-colors border border-red-400/20"
+                          title="Xóa câu này"
+                        >
+                          <Trash2 size={11} /> Xóa
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex items-center gap-3">
@@ -253,13 +442,24 @@ export default function AdminQuestionsPage() {
           
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim/50" />
-            <input 
+            <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Tìm nội dung câu hỏi..." 
-              className="input pl-9 h-10 w-64 text-sm" 
+              placeholder="Tìm nội dung câu hỏi..."
+              className="input pl-9 h-10 w-64 text-sm"
             />
           </div>
+
+          <button
+            onClick={handleFindDuplicates}
+            disabled={dupLoading}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border border-bg-border text-text-dim hover:text-text hover:border-bg-border transition-colors"
+            title="Kiểm tra câu trùng lặp"
+          >
+            {dupLoading ? <Loader2 size={13} className="animate-spin" /> : <ScanSearch size={13} />}
+            Trùng lặp
+          </button>
+          {dupError && !showDuplicateModal && <span className="text-xs text-red-400">{dupError}</span>}
         </div>
         
         {/* Bulk action bar */}

@@ -1,13 +1,14 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { adminApi } from '@/lib/api'
-import { Users, Database, FileText, Activity, ShieldCheck } from 'lucide-react'
+import { Users, Database, FileText, Activity, ShieldCheck, Copy } from 'lucide-react'
 
 interface Stats {
   total_users: number
   total_questions: number
   total_exams: number
   active_users: number
+  duplicate_questions: number
 }
 
 function StatCard({ title, value, icon: Icon, color, bg }: { title: string; value: string | number; icon: any; color: string; bg: string }) {
@@ -39,8 +40,8 @@ export default function AdminDashboardPage() {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-bold text-text mb-2">Tổng quan</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          {[...Array(5)].map((_, i) => (
             <div key={i} className="bg-bg-card border border-bg-border rounded-2xl p-6 h-28 skeleton" />
           ))}
         </div>
@@ -60,7 +61,7 @@ export default function AdminDashboardPage() {
         <p className="text-text-muted text-sm">Quản lý thống kê và tình trạng hoạt động của nền tảng MathPlay.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <StatCard
           title="Người dùng"
           value={stats.total_users}
@@ -88,6 +89,13 @@ export default function AdminDashboardPage() {
           icon={FileText}
           color="text-orange-500"
           bg="bg-orange-500/10"
+        />
+        <StatCard
+          title="Câu hỏi trùng"
+          value={stats.duplicate_questions}
+          icon={Copy}
+          color="text-amber-500"
+          bg="bg-amber-500/10"
         />
       </div>
 
