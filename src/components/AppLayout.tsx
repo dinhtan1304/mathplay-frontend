@@ -6,17 +6,19 @@ import { useAuth } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, Upload, BookOpen, Wand2, Users, MessageCircle,
-  LogOut, Menu, X, ChevronRight, ChevronLeft, Sigma, FileText,
+  LogOut, Menu, X, ChevronRight, ChevronLeft, Sigma, FileText, Gamepad2, LayoutGrid,
 } from 'lucide-react'
 
 const NAV = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',     section: 'Tổng quan' },
-  { href: '/upload',    icon: Upload,          label: 'Upload PDF',    section: 'Tổng quan' },
-  { href: '/exams',     icon: FileText,        label: 'Đề thi',        section: 'Quản lý' },
-  { href: '/bank',      icon: BookOpen,        label: 'Ngân hàng đề', section: 'Quản lý' },
-  { href: '/generate',  icon: Wand2,           label: 'Sinh đề AI',   section: 'Quản lý' },
-  { href: '/classes',   icon: Users,           label: 'Lớp học',      section: 'Lớp học' },
-  { href: '/chat',      icon: MessageCircle,   label: 'Gia sư AI',    section: 'Lớp học' },
+  { href: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard',     section: 'Tổng quan' },
+  { href: '/upload',          icon: Upload,          label: 'Upload PDF',    section: 'Tổng quan' },
+  { href: '/exams',           icon: FileText,        label: 'Đề thi',        section: 'Quản lý' },
+  { href: '/bank',            icon: BookOpen,        label: 'Ngân hàng đề', section: 'Quản lý' },
+  { href: '/quizzes',         icon: Gamepad2,        label: 'Quiz',          section: 'Quản lý' },
+  { href: '/generate',        icon: Wand2,           label: 'Sinh đề AI',   section: 'Quản lý' },
+  { href: '/dashboard/pages', icon: LayoutGrid,      label: 'Trang GV',     section: 'Quản lý' },
+  { href: '/classes',         icon: Users,           label: 'Lớp học',      section: 'Lớp học' },
+  { href: '/chat',            icon: MessageCircle,   label: 'Gia sư AI',    section: 'Lớp học' },
 ]
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

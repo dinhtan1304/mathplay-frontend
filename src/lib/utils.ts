@@ -52,6 +52,7 @@ export const SUBJECT_LABELS: Record<string, string> = {
   'tin-hoc': 'Tin học', 'cong-nghe': 'Công nghệ',
   'gdtc': 'GDTC', 'am-nhac': 'Âm nhạc', 'my-thuat': 'Mỹ thuật',
   'hdtn': 'HĐTN', 'gdqpan': 'QP-AN',
+  'ielts': 'IELTS',
 }
 
 export const GAME_MODE_LABELS: Record<string, string> = {

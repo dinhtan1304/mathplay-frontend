@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { parserApi, questionsApi, classesApi, assignmentsApi, getErrorMessage } from '@/lib/api'
 import type { Question, ClassRoom, Exam } from '@/types'
 import { DIFFICULTY_LABELS, DIFFICULTY_COLORS, TYPE_LABELS, SUBJECT_LABELS, cn, formatDateTime } from '@/lib/utils'
@@ -16,6 +17,7 @@ interface ProgressState {
 }
 
 export default function UploadPage() {
+  const router = useRouter()
   const [stage, setStage] = useState<Stage>('idle')
   const [uploadPct, setUploadPct] = useState(0)
   const [progress, setProgress] = useState<ProgressState>({ percent: 0, message: '' })
@@ -119,7 +121,10 @@ export default function UploadPage() {
     if (pollRef.current) clearInterval(pollRef.current)
 
     try {
-      const { job_id } = await parserApi.upload(file, setUploadPct, subjectHint)
+      const isIelts = subjectHint === 'ielts'
+      const { job_id } = isIelts
+        ? await parserApi.uploadIelts(file, setUploadPct)
+        : await parserApi.upload(file, setUploadPct, subjectHint)
       setJobId(job_id)
       setStage('processing')
       setProgress({ percent: 5, message: 'Đang khởi tạo...' })
@@ -143,8 +148,14 @@ export default function UploadPage() {
         if (data.stage === 'done') {
           completed = true
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
-          setProgress({ percent: 100, message: 'Hoàn tất! Đang tải kết quả...' })
-          await loadQuestions(job_id)
+          setProgress({ percent: 100, message: 'Hoàn tất!' })
+          if (isIelts && data.quiz_code) {
+            // IELTS → navigate to the dedicated fixed-layout test UI
+            router.push(`/ielts/${data.quiz_code}`)
+          } else {
+            setProgress({ percent: 100, message: 'Hoàn tất! Đang tải kết quả...' })
+            await loadQuestions(job_id)
+          }
           return
         }
 
@@ -301,6 +312,9 @@ export default function UploadPage() {
               <optgroup label="Khác">
                 <option value="tin-hoc">Tin học</option>
                 <option value="cong-nghe">Công nghệ</option>
+              </optgroup>
+              <optgroup label="Luyện thi quốc tế">
+                <option value="ielts">IELTS</option>
               </optgroup>
             </select>
             <span className="text-xs text-text-dim">Bắt buộc chọn môn học</span>

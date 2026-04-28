@@ -15,6 +15,8 @@ import type {
   Exam,
   CurriculumTree,
   ChatMessageRequest, ChatMessageResponse, ChatSession as ChatSessionType, ChatSessionHistory,
+  Quiz, QuizListResponse, QuizQuestion, QuizQuestionCreate, QuizTheory, QuizDelivery,
+  QuizAttempt, QuizAnswerResult, SubmitAnswerItem, ImportQuestionsResult, HintResponse,
 } from '@/types'
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
@@ -172,6 +174,24 @@ export const parserApi = {
   // PATCH /parser/{job_id} — rename exam
   renameExam: (jobId: number, name: string) =>
     api.patch<Exam>(`/parser/${jobId}`, { name }).then(r => r.data),
+
+  // POST /parser/parse-ielts — upload IELTS exam, creates Quiz automatically
+  uploadIelts: (
+    file: File,
+    onProgress?: (pct: number) => void,
+    useVision = false,
+  ) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('use_vision', String(useVision))
+    return api.post<{ job_id: number; status: string; message: string }>(
+      `/parser/parse-ielts?use_vision=${useVision}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (e: { loaded: number; total?: number }) => {
+        if (e.total) onProgress?.(Math.round((e.loaded / e.total) * 100))
+      },
+    }).then(r => r.data)
+  },
 }
 
 // ─── Questions ───────────────────────────────────────────────────────────────
@@ -471,6 +491,173 @@ export const chatApi = {
 
   deleteSession: (sessionId: number) =>
     api.delete(`/chat/sessions/${sessionId}`),
+}
+
+// ─── Quiz ───────────────────────────────────────────────────────────────────
+export const quizApi = {
+  // CRUD
+  create: (data: { name: string; description?: string; subject_code?: string; grade?: number; mode?: string; visibility?: string; tags?: string[]; settings?: Record<string, unknown> }) =>
+    api.post<Quiz>('/quizzes', data).then(r => r.data),
+
+  list: (params?: { page?: number; page_size?: number; status?: string; search?: string }) =>
+    api.get<QuizListResponse>('/quizzes', { params }).then(r => r.data),
+
+  get: (id: number) =>
+    api.get<Quiz>(`/quizzes/${id}`).then(r => r.data),
+
+  update: (id: number, data: Partial<Quiz>) =>
+    api.patch<Quiz>(`/quizzes/${id}`, data).then(r => r.data),
+
+  delete: (id: number) =>
+    api.delete(`/quizzes/${id}`),
+
+  getDeleteInfo: (id: number) =>
+    api.get<{ quiz_name: string; question_count: number; theory_count: number; attempt_count: number; assignment_count: number }>(`/quizzes/${id}/delete-info`).then(r => r.data),
+
+  // Questions
+  addQuestion: (quizId: number, data: QuizQuestionCreate) =>
+    api.post<QuizQuestion>(`/quizzes/${quizId}/questions`, data).then(r => r.data),
+
+  listQuestions: (quizId: number) =>
+    api.get<QuizQuestion[]>(`/quizzes/${quizId}/questions`).then(r => r.data),
+
+  updateQuestion: (quizId: number, questionId: number, data: Partial<QuizQuestionCreate>) =>
+    api.patch<QuizQuestion>(`/quizzes/${quizId}/questions/${questionId}`, data).then(r => r.data),
+
+  deleteQuestion: (quizId: number, questionId: number) =>
+    api.delete(`/quizzes/${quizId}/questions/${questionId}`),
+
+  // Batch create (JSON file import) — returns { data, skipped }
+  batchCreateQuestions: (quizId: number, questions: QuizQuestionCreate[], sourceType: string = 'file_import') =>
+    api.post<QuizQuestion[]>(`/quizzes/${quizId}/batch-questions`, {
+      questions, source_type: sourceType,
+    }).then(r => ({
+      data: r.data,
+      skipped: parseInt(r.headers['x-skipped-duplicates'] || '0', 10),
+    })),
+
+  // Import from bank
+  importQuestions: (quizId: number, questionIds: number[], sourceType: string = 'bank_import', targetType?: string) =>
+    api.post<ImportQuestionsResult>(`/quizzes/${quizId}/import-questions`, {
+      question_ids: questionIds,
+      source_type: sourceType,
+      ...(targetType ? { target_type: targetType } : {}),
+    }).then(r => r.data),
+
+  // Theories
+  addTheory: (quizId: number, data: { title: string; content_type?: string; tags?: string[]; display_order?: number; sections: { order: number; content: string; content_format?: string; media?: Record<string, unknown> | null }[] }) =>
+    api.post<QuizTheory>(`/quizzes/${quizId}/theories`, data).then(r => r.data),
+
+  batchCreateTheories: (quizId: number, theories: { title: string; content_type?: string; tags?: string[]; display_order?: number; sections: { order: number; content: string; content_format?: string; media?: Record<string, unknown> | null }[] }[]) =>
+    api.post<QuizTheory[]>(`/quizzes/${quizId}/batch-theories`, theories).then(r => r.data),
+
+  listTheories: (quizId: number) =>
+    api.get<QuizTheory[]>(`/quizzes/${quizId}/theories`).then(r => r.data),
+
+  deleteTheory: (quizId: number, theoryId: number) =>
+    api.delete(`/quizzes/${quizId}/theories/${theoryId}`),
+
+  // Delivery (student view)
+  deliver: (quizId: number) =>
+    api.get<QuizDelivery>(`/quizzes/${quizId}/deliver`).then(r => r.data),
+
+  // Lookup by code
+  getByCode: (code: string) =>
+    api.get<QuizDelivery>(`/quizzes/by-code/${code}`).then(r => r.data),
+
+  // Export quiz to JSON
+  export: (quizId: number) =>
+    api.get(`/quizzes/${quizId}/export`).then(r => r.data),
+}
+
+// Batch fetch quiz info by codes (for template public/preview rendering).
+// Swallows 404 / errors per code → returns { code, not_found: true }.
+export async function fetchQuizBatch(codes: string[]): Promise<import('@/lib/templates').QuizDisplayInfo[]> {
+  if (!codes || codes.length === 0) return []
+  const unique = Array.from(new Set(codes.map(c => c.trim()).filter(Boolean)))
+  const results = await Promise.all(unique.map(async (code): Promise<import('@/lib/templates').QuizDisplayInfo> => {
+    try {
+      const q = await quizApi.getByCode(code)
+      return {
+        code: q.code,
+        name: q.name,
+        description: q.description,
+        cover_image_url: q.cover_image_url,
+        question_count: q.question_count,
+        total_points: q.total_points,
+      }
+    } catch {
+      return { code, name: code, question_count: 0, not_found: true }
+    }
+  }))
+  return results
+}
+
+// ─── Quiz Attempts ──────────────────────────────────────────────────────────
+export const quizAttemptApi = {
+  start: (quizId: number, assignmentId?: number) =>
+    api.post<QuizAttempt>('/quiz-attempts/start', {
+      quiz_id: quizId,
+      assignment_id: assignmentId,
+    }).then(r => r.data),
+
+  submit: (attemptId: number, answers: SubmitAnswerItem[]) =>
+    api.post<QuizAttempt>(`/quiz-attempts/${attemptId}/submit`, { answers }).then(r => r.data),
+
+  get: (attemptId: number) =>
+    api.get<QuizAttempt>(`/quiz-attempts/${attemptId}`).then(r => r.data),
+
+  myAttempts: (quizId: number) =>
+    api.get<QuizAttempt[]>(`/quiz-attempts/quiz/${quizId}/my-attempts`).then(r => r.data),
+
+  getHint: (attemptId: number, questionId: number, level: number) =>
+    api.get<HintResponse>(`/quiz-attempts/${attemptId}/hint/${questionId}`, { params: { level } })
+      .then(r => r.data),
+
+  // Teacher grading
+  getPendingReview: (quizId: number) =>
+    api.get<QuizAttempt[]>(`/quiz-attempts/quiz/${quizId}/pending-review`).then(r => r.data),
+
+  gradeAnswer: (attemptId: number, answerId: number, data: {
+    points_earned: number; is_correct?: boolean | null; teacher_comment?: string | null
+  }) =>
+    api.patch<QuizAnswerResult>(`/quiz-attempts/${attemptId}/answers/${answerId}/grade`, data)
+      .then(r => r.data),
+
+  finalizeGrading: (attemptId: number, data?: { passed?: boolean | null }) =>
+    api.post<QuizAttempt>(`/quiz-attempts/${attemptId}/finalize-grading`, data || {}).then(r => r.data),
+}
+
+// ─── Media Upload ───────────────────────────────────────────────────────────
+export const mediaApi = {
+  upload: (file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post<{ url: string; type: 'image' | 'audio' }>('/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+}
+
+// ─── Teacher Pages ───────────────────────────────────────────────────────────
+export const pagesApi = {
+  checkSlug: (slug: string) =>
+    api.get<{ available: boolean; reason?: string }>(`/pages/check-slug/${slug}`).then(r => r.data),
+
+  getPublic: (slug: string) =>
+    api.get(`/pages/public/${slug}`).then(r => r.data),
+
+  listMy: () =>
+    api.get(`/pages/my`).then(r => r.data),
+
+  create: (data: { template_id: string; slug: string; title: string; config: object }) =>
+    api.post(`/pages`, data).then(r => r.data),
+
+  update: (id: number, data: Partial<{ template_id: string; slug: string; title: string; config: object; is_published: boolean }>) =>
+    api.patch(`/pages/${id}`, data).then(r => r.data),
+
+  delete: (id: number) =>
+    api.delete(`/pages/${id}`),
 }
 
 export default api
