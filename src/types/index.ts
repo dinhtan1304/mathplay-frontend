@@ -50,6 +50,10 @@ export interface ParseProgress {
   status?: string
   progress?: number
   questions_found?: number
+  // IELTS complete payload
+  quiz_id?: number
+  quiz_code?: string
+  question_count?: number
 }
 
 // ─── Questions ────────────────────────────────────────────────────────────────
@@ -106,6 +110,7 @@ export interface QuestionUpdate {
   solution_steps?: string
   options?: string[]
   is_public?: boolean
+  extra_data?: string | null
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
@@ -482,6 +487,302 @@ export interface StudentDetail {
     submitted_at?: string
   }[]
   weak_topics: { topic: string; correct_rate: number; attempts: number }[]
+}
+
+// ─── Quiz ─────────────────────────────────────────────────────────────────────
+export type QuizQuestionType =
+  | 'multiple_choice'
+  | 'checkbox'
+  | 'fill_blank'
+  | 'reorder'
+  | 'true_false'
+  | 'essay'
+  // IELTS types
+  | 'true_false_not_given'
+  | 'yes_no_not_given'
+  | 'matching'
+  | 'matching_headings'
+
+export type QuizStatus = 'draft' | 'published' | 'archived'
+export type QuizVisibility = 'private' | 'public' | 'unlisted' | 'class_only'
+export type QuizDifficulty = 'easy' | 'medium' | 'hard' | 'expert'
+
+export interface MediaObject {
+  type: 'image' | 'audio'
+  url: string
+  alt?: string
+}
+
+export interface QuizSettings {
+  time_limit_minutes?: number | null
+  shuffle_questions: boolean
+  shuffle_choices: boolean
+  show_correct_after_each: boolean
+  allow_retake: boolean
+  max_retakes?: number | null
+  passing_score?: number | null
+  passing_score_type: 'points' | 'percentage'
+  points_mode: 'fixed' | 'speed_bonus'
+  show_leaderboard: boolean
+  allow_review_after_submit: boolean
+  auto_submit_on_timeout: boolean
+  hint_penalty: { level_1: number; level_2: number; level_3: number }
+  negative_scoring: boolean
+  question_selection_count?: number | null
+  difficulty_distribution?: Record<string, number>
+  grading_mode: 'auto' | 'manual'
+}
+
+export interface Quiz {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  cover_image_url?: string | null
+  created_by_id: number
+  subject_code?: string | null
+  grade?: number | null
+  mode: string
+  language: string
+  visibility: QuizVisibility
+  status: QuizStatus
+  tags: string[]
+  version: number
+  settings: QuizSettings
+  question_count: number
+  total_points: number
+  created_at: string
+  updated_at: string
+  published_at?: string | null
+}
+
+export interface QuizListResponse {
+  items: Quiz[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ChoiceItem {
+  key: string
+  text: string
+  is_correct: boolean
+  media?: MediaObject | null
+}
+
+export interface ReorderItem {
+  id: string
+  text: string
+}
+
+export interface ScoringRules {
+  mode: 'all_or_nothing' | 'per_blank' | 'partial'
+  partial_credit?: boolean
+  partial_formula?: string | null
+  penalty_wrong_choice?: number
+  points_per_blank?: number | null
+  word_limit?: string | null   // IELTS: "TWO WORDS AND/OR A NUMBER"
+  source?: 'passage' | null    // IELTS: answer must come from passage
+}
+
+export interface SolutionData {
+  steps: string[]
+  explanation?: string | null
+}
+
+export interface QuizQuestion {
+  id: number
+  quiz_id: number
+  origin_question_id?: number | null
+  source_type: 'manual' | 'bank_import' | 'file_import' | 'ai_generated'
+  origin_quiz_code?: string | null
+  order: number
+  code?: string | null
+  type: QuizQuestionType
+  question_text: string
+  has_correct_answer: boolean
+  required: boolean
+  points: number
+  time_limit_seconds?: number | null
+  difficulty?: QuizDifficulty | null
+  subject_code?: string | null
+  tags: string[]
+  media?: MediaObject | null
+  answer?: unknown
+  choices?: ChoiceItem[] | null
+  items?: ReorderItem[] | null
+  scoring?: ScoringRules | null
+  solution?: SolutionData | null
+  hint_section_id?: number | null
+  hint_auto_linked: boolean
+  metadata?: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SkippedQuestion {
+  question_id: number
+  reason: 'no_access' | 'empty_text' | 'convert_error'
+}
+
+export interface ImportQuestionsResult {
+  imported: QuizQuestion[]
+  imported_count: number
+  skipped: SkippedQuestion[]
+  skipped_count: number
+  total_requested: number
+}
+
+export interface QuizQuestionCreate {
+  type: QuizQuestionType
+  question_text: string
+  order?: number
+  code?: string
+  has_correct_answer?: boolean
+  required?: boolean
+  points?: number
+  time_limit_seconds?: number | null
+  difficulty?: QuizDifficulty | null
+  subject_code?: string | null
+  tags?: string[]
+  media?: MediaObject | null
+  answer?: unknown
+  choices?: ChoiceItem[] | null
+  items?: ReorderItem[] | null
+  scoring?: ScoringRules | null
+  solution?: SolutionData | null
+  hint_section_id?: number | null
+  hint_auto_linked?: boolean
+  metadata?: Record<string, unknown> | null
+}
+
+export interface TheorySection {
+  id: number
+  theory_id: number
+  order: number
+  content: string
+  content_format: string
+  media?: MediaObject | null
+}
+
+export interface QuizTheory {
+  id: number
+  quiz_id: number
+  title: string
+  content_type: string
+  language: string
+  tags: string[]
+  display_order: number
+  created_at: string
+  sections: TheorySection[]
+}
+
+export interface QuizDeliveryQuestion {
+  id: number
+  order: number
+  code?: string | null
+  type: QuizQuestionType
+  question_text: string
+  required: boolean
+  points: number
+  time_limit_seconds?: number | null
+  difficulty?: QuizDifficulty | null
+  media?: MediaObject | null
+  choices?: Omit<ChoiceItem, 'is_correct'>[] | null
+  items?: ReorderItem[] | null
+  blank_count?: number
+  blank_labels?: string[] | null
+  has_hint: boolean
+  hint_section_id?: number | null
+  scoring?: ScoringRules | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface QuizDelivery {
+  id: number
+  code: string
+  name: string
+  description?: string | null
+  cover_image_url?: string | null
+  subject_code?: string | null
+  grade?: number | null
+  mode: string
+  settings: QuizSettings
+  question_count: number
+  total_points: number
+  questions: QuizDeliveryQuestion[]
+  theories: QuizTheory[]
+}
+
+// ─── IELTS — grouped view over QuizDelivery ──────────────────────────────────
+export type IeltsSection = 'reading' | 'listening' | 'writing'
+
+export interface IeltsSectionGroup {
+  kind: IeltsSection
+  title: string
+  theory?: QuizTheory | null
+  audioUrl?: string | null
+  questions: QuizDeliveryQuestion[]
+}
+
+export interface IeltsGroupedQuiz {
+  quiz: QuizDelivery
+  sections: IeltsSectionGroup[]
+}
+
+export interface QuizAttempt {
+  id: number
+  quiz_id: number
+  student_id: number
+  assignment_id?: number | null
+  attempt_no: number
+  status: 'in_progress' | 'completed' | 'pending_review' | 'timed_out' | 'abandoned'
+  score?: number | null
+  max_score?: number | null
+  percentage?: number | null
+  passed?: boolean | null
+  total_questions: number
+  correct_count: number
+  time_spent_s?: number | null
+  xp_earned: number
+  selected_question_ids?: number[] | null
+  graded_by_id?: number | null
+  graded_at?: string | null
+  started_at: string
+  submitted_at?: string | null
+  answers: QuizAnswerResult[]
+}
+
+export interface QuizAnswerResult {
+  id: number
+  question_id: number
+  given_answer?: unknown
+  is_correct?: boolean | null
+  points_earned: number
+  time_ms?: number | null
+  hint_used: boolean
+  hint_level: number
+  correct_answer?: unknown
+  explanation?: string | null
+  teacher_comment?: string | null
+}
+
+export interface SubmitAnswerItem {
+  question_id: number
+  given_answer?: unknown
+  time_ms?: number | null
+  hint_used?: boolean
+  hint_level?: number
+}
+
+export interface HintResponse {
+  question_id: number
+  hint_level: number
+  theory_content?: string | null
+  theory_title?: string | null
+  solution?: SolutionData | null
+  answer?: unknown
+  explanation?: string | null
 }
 
 // ─── Export ───────────────────────────────────────────────────────────────────
